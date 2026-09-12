@@ -1,5 +1,6 @@
 const createBot = require('./core/createBot')
 const followPlayer = require('./movement/followPlayer')
+const stopMovement = require('./movement/stopMovement')
 
 const bot = createBot()
 
@@ -10,7 +11,13 @@ bot.once('spawn', () => {
 bot.on('chat', (username, message) => {
   if (username === bot.username) return
 
-  if (message.toLowerCase() === 'earl follow me') {
+  const text = message.toLowerCase()
+
+  if (text === 'earl follow me') {
     followPlayer(bot, username)
+  }
+
+  if (text === 'earl stop') {
+    stopMovement(bot)
   }
 })
