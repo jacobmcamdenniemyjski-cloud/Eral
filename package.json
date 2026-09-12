@@ -10,6 +10,7 @@
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {
-    "mindflayer": "^0.1.0-alpha.1"
+    "mindflayer": "^0.1.0-alpha.1",
+    "mineflayer-pathfinder": "^2.4.5"
   }
 }
