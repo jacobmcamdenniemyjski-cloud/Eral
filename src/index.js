@@ -1,1 +1,7 @@
-console.log("Earl main application starting...");
+const createBot = require('./core/createBot')
+
+const bot = createBot()
+
+bot.once('spawn', () => {
+  console.log('Earl connected and spawned.')
+})
