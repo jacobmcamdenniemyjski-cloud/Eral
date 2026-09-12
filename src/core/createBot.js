@@ -1,5 +1,6 @@
 const mineflayer = require('mineflayer')
 const { pathfinder } = require('mineflayer-pathfinder')
+const collectBlock = require('mineflayer-collectblock').plugin
 
 function createBot() {
   const bot = mineflayer.createBot({
@@ -11,7 +12,7 @@ function createBot() {
   })
 
   bot.loadPlugin(pathfinder)
-
+  bot.loadPlugin(collectBlock)
   return bot
 }
 

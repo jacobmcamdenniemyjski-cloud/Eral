@@ -8,6 +8,8 @@ const findNearestBlock = require('./perception/findNearestBlock')
 const getStatus = require('./perception/getStatus')
 const getNearbyEntities = require('./perception/getNearbyEntities')
 
+const gatherBlock = require('./gathering/gatherBlock')
+
 const TaskScheduler = require('./scheduler/TaskScheduler')
 
 const bot = createBot()
@@ -21,6 +23,15 @@ bot.on('chat', (username, message) => {
   if (username === bot.username) return
 
   const text = message.toLowerCase()
+
+  if (text.startsWith('earl gather ')) {
+    const parts = text.split(' ')
+
+    const blockName = parts[2]
+    const amount = Number(parts[3]) || 1
+
+    gatherBlock(bot, blockName, amount)
+  }
 
   if (text === 'earl task') {
     console.log(scheduler.getCurrentTask())
