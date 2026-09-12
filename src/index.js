@@ -3,6 +3,7 @@ const followPlayer = require('./movement/followPlayer')
 const stopMovement = require('./movement/stopMovement')
 const goTo = require('./movement/goTo')
 const lookAtPlayer = require('./movement/lookAtPlayer')
+const findNearestBlock = require('./perception/findNearestBlock')
 
 const getStatus = require('./perception/getStatus')
 const getNearbyEntities = require('./perception/getNearbyEntities')
@@ -20,6 +21,20 @@ bot.on('chat', (username, message) => {
 
   if (text === 'earl follow me') {
     followPlayer(bot, username)
+  }
+
+  if (text.startsWith('earl find ')) {
+    const blockName = text.replace('earl find ', '').trim()
+    const block = findNearestBlock(bot, blockName)
+
+    if (block) {
+      console.log({
+        name: block.name,
+        position: block.position
+      })
+    } else {
+      console.log(`No ${blockName} found nearby.`)
+    }
   }
 
   if (text === 'earl stop') {
