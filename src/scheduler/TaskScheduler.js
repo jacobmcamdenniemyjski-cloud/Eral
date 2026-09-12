@@ -4,7 +4,15 @@ class TaskScheduler {
   }
 
   setTask(task) {
-    this.currentTask = task
+    if (
+      !this.currentTask ||
+      (task.priority || 0) >= (this.currentTask.priority || 0)
+    ) {
+      this.currentTask = task
+      return true
+    }
+
+    return false
   }
 
   clearTask() {

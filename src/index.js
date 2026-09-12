@@ -29,7 +29,8 @@ bot.on('chat', (username, message) => {
   if (text === 'earl follow me') {
     scheduler.setTask({
       type: 'follow',
-      target: username
+      target: username,
+      priority: 200
     })
 
     followPlayer(bot, username)
@@ -77,7 +78,8 @@ bot.on('chat', (username, message) => {
       type: 'goto',
       x,
       y,
-      z
+      z,
+      priority: 200
     })
 
     goTo(bot, x, y, z)
