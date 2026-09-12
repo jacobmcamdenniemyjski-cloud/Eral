@@ -3,7 +3,9 @@ const followPlayer = require('./movement/followPlayer')
 const stopMovement = require('./movement/stopMovement')
 const goTo = require('./movement/goTo')
 const lookAtPlayer = require('./movement/lookAtPlayer')
+
 const getStatus = require('./perception/getStatus')
+const getNearbyEntities = require('./perception/getNearbyEntities')
 
 const bot = createBot()
 
@@ -29,7 +31,11 @@ bot.on('chat', (username, message) => {
   }
 
   if (text === 'earl status') {
-  console.log(getStatus(bot))
+    console.log(getStatus(bot))
+  }
+
+  if (text === 'earl scan') {
+    console.log(getNearbyEntities(bot))
   }
 
   if (text.startsWith('earl goto ')) {
