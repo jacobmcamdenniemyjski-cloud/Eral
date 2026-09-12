@@ -1,0 +1,15 @@
+{
+  "name": "earl0.1",
+  "version": "0.0.1",
+  "description": "earl npc",
+  "license": "ISC",
+  "author": "Niemyjski",
+  "type": "commonjs",
+  "main": "earl.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "mindflayer": "^0.1.0-alpha.1"
+  }
+}
