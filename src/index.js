@@ -7,6 +7,7 @@ const lookAtPlayer = require('./movement/lookAtPlayer')
 const findNearestBlock = require('./perception/findNearestBlock')
 const getStatus = require('./perception/getStatus')
 const getNearbyEntities = require('./perception/getNearbyEntities')
+const getInventory = require('./perception/getInventory')
 
 const gatherBlock = require('./gathering/gatherBlock')
 
@@ -24,7 +25,12 @@ bot.on('chat', (username, message) => {
 
   const text = message.toLowerCase()
 
+  if (text === 'earl inventory') {
+   console.log(getInventory(bot))
+  }
+
   if (text.startsWith('earl gather ')) {
+    console.log('Gather command received:', text)
     const parts = text.split(' ')
 
     const blockName = parts[2]
