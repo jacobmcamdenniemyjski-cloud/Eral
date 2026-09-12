@@ -27,13 +27,15 @@ bot.on('chat', (username, message) => {
   }
 
   if (text === 'earl follow me') {
-    scheduler.setTask({
+    const accepted = scheduler.setTask({
       type: 'follow',
       target: username,
       priority: 200
     })
 
-    followPlayer(bot, username)
+    if (accepted) {
+      followPlayer(bot, username)
+    }
   }
 
   if (text.startsWith('earl find ')) {
@@ -74,7 +76,7 @@ bot.on('chat', (username, message) => {
     const y = Number(parts[3])
     const z = Number(parts[4])
 
-    scheduler.setTask({
+    const accepted = scheduler.setTask({
       type: 'goto',
       x,
       y,
@@ -82,6 +84,8 @@ bot.on('chat', (username, message) => {
       priority: 200
     })
 
-    goTo(bot, x, y, z)
+    if (accepted) {
+      goTo(bot, x, y, z)
+    }
   }
 })
