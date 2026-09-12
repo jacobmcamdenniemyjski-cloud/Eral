@@ -3,6 +3,7 @@ const followPlayer = require('./movement/followPlayer')
 const stopMovement = require('./movement/stopMovement')
 const goTo = require('./movement/goTo')
 const lookAtPlayer = require('./movement/lookAtPlayer')
+const getStatus = require('./perception/getStatus')
 
 const bot = createBot()
 
@@ -25,6 +26,10 @@ bot.on('chat', (username, message) => {
 
   if (text === 'earl look at me') {
     lookAtPlayer(bot, username)
+  }
+
+  if (text === 'earl status') {
+  console.log(getStatus(bot))
   }
 
   if (text.startsWith('earl goto ')) {
