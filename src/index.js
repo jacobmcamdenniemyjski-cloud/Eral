@@ -1,0 +1,1 @@
+console.log("Earl main application starting...");
