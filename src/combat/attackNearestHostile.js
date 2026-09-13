@@ -36,7 +36,7 @@ const HOSTILE_MOBS = new Set([
   'zombified_piglin'
 ])
 
-function attackNearestHostile(bot, mobName, maxDistance = 16) {
+async function attackNearestHostile(bot, mobName, maxDistance = 16) {
   const normalizedName = mobName
     .toLowerCase()
     .replace(/^minecraft:/, '')
@@ -48,7 +48,11 @@ function attackNearestHostile(bot, mobName, maxDistance = 16) {
 
   const target = Object.values(bot.entities)
     .filter((entity) => {
-      if (!entity.position || entity.type !== 'mob') {
+      if (
+        !entity.position ||
+        entity === bot.entity ||
+        entity.type === 'player'
+      ) {
         return false
       }
 
@@ -69,7 +73,9 @@ function attackNearestHostile(bot, mobName, maxDistance = 16) {
     return null
   }
 
-  bot.pvp.attack(target)
+  await bot.pvp.attack(target)
+
+  console.log(`Earl is attacking the nearest ${normalizedName}.`)
   bot.chat(`Attacking the nearest ${normalizedName}.`)
 
   return target

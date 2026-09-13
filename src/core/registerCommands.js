@@ -127,7 +127,7 @@ function registerCommands(bot, scheduler, router) {
       return
     }
 
-    const target = attackNearestHostile(bot, mobName)
+    const target = await attackNearestHostile(bot, mobName)
 
     if (!target) {
       scheduler.clearTask()

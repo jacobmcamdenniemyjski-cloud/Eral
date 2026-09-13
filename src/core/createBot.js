@@ -3,7 +3,7 @@ const { pathfinder } = require('mineflayer-pathfinder')
 const collectBlock = require('mineflayer-collectblock').plugin
 const armorManager = require('mineflayer-armor-manager')
 const autoEat = require('mineflayer-auto-eat').plugin
-const pvp = require('mineflayer-pvp').plugin
+const loadPvpPlugin = require('./loadPvpPlugin')
 
 async function createBot() {
   const bot = mineflayer.createBot({
@@ -18,7 +18,7 @@ async function createBot() {
   bot.loadPlugin(collectBlock)
   bot.loadPlugin(armorManager)
   bot.loadPlugin(autoEat)
-  bot.loadPlugin(pvp)
+  bot.loadPlugin(loadPvpPlugin)
 
   return bot
 }
