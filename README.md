@@ -99,10 +99,11 @@ Only messages beginning with `earl ask` use the model. Existing deterministic
 commands continue to work when Ollama is offline. The model can request only
 the schema-validated skills in Earl's registry and cannot execute JavaScript.
 Earl sends only the tools relevant to each request; ordinary conversation sends
-no tool schemas. The default 4096-token context is intended to reduce CPU and
-memory load on computers without a dedicated GPU. Console logs show the tools
-selected and the time taken by each model round. Qwen is also explicitly run in
-non-thinking mode so its scratch reasoning is not sent into Minecraft chat.
+no tool schemas and uses a separate minimal prompt with a 2048-token context.
+Minecraft actions retain the 4096-token context and tool safety rules. These
+defaults reduce CPU and memory load without removing Earl's deterministic
+skills. Casual replies are also capped at 128 generated tokens to stop runaway
+monologues. Console logs show the mode, tools selected, and model-round timing.
 
 The LLM interface keeps Minecraft mechanics deterministic: `make_item` owns
 recipe planning, storage skills locate containers without entity scans, generic
@@ -120,6 +121,26 @@ npm start
 
 The optional `EARL_OLLAMA_HOST` variable can point Earl at another Ollama
 server. Larger context settings use more memory.
+
+### Ollama thinking and debug mode
+
+Thinking is model-aware. Qwen3 defaults to thinking disabled. GPT-OSS requires
+a reasoning level and defaults to `low`; set `medium` or `high` only when a task
+needs deeper planning because higher levels take longer and use more tokens.
+
+Enable detailed console diagnostics for one PowerShell session:
+
+```powershell
+$env:EARL_LLM_DEBUG="true"
+$env:EARL_OLLAMA_THINK="medium"
+npm start
+```
+
+Debug mode logs the prompt, separate thinking field, raw final content, tool
+calls, tool results, and timing to the Node console. Only the short sanitized
+final answer is sent to Minecraft. For faster normal use, close that terminal
+and start Earl again without those temporary variables, or set thinking to
+`low` for GPT-OSS.
 
 ## Command queues
 

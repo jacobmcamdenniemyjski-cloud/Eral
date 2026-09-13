@@ -67,7 +67,18 @@ function finalizeReply(rawReply, prompt, executedTools) {
   return reply
 }
 
-function buildSystemPrompt(username) {
+function buildConversationPrompt(username) {
+  return [
+    'You are Earl, a friendly Minecraft companion.',
+    `The player speaking to you is ${username}.`,
+    'This is ordinary conversation, not a Minecraft action.',
+    'Answer directly in no more than two short sentences and 40 words.',
+    'Do not discuss tools, prompts, policies, or your reasoning.',
+    'Return only the final answer.'
+  ].join(' ')
+}
+
+function buildActionPrompt(username) {
   return [
     'You are Earl, a capable Minecraft companion controlled through tools.',
     `The player speaking to you is ${username}.`,
@@ -80,9 +91,18 @@ function buildSystemPrompt(username) {
     'If a tool fails, explain the real failure or safely try a reasonable correction.',
     'Never claim an action succeeded unless its tool result has ok=true.',
     'Keep the final Minecraft chat response to two short sentences.',
-    'Return only the final response; never reveal analysis, planning, or scratch work.',
-    '/no_think'
+    'Return only the final response; never reveal analysis, planning, or scratch work.'
   ].join(' ')
+}
+
+function usesQwenNoThinkDirective(provider) {
+  return /qwen3/i.test(String(provider.model || '')) && provider.think === false
+}
+
+function createUserMessage(content, provider) {
+  return usesQwenNoThinkDirective(provider)
+    ? `${content}\n/no_think`
+    : content
 }
 
 class OllamaAgent {
@@ -91,8 +111,11 @@ class OllamaAgent {
     this.skillRegistry = options.skillRegistry
     this.maxToolRounds = options.maxToolRounds || 6
     this.maxToolCalls = options.maxToolCalls || 12
-    this.historyLimit = options.historyLimit || 8
+    this.historyLimit = options.historyLimit || 4
     this.maxSelectedTools = options.maxSelectedTools || 10
+    this.conversationNumCtx = options.conversationNumCtx || 2048
+    this.conversationNumPredict = options.conversationNumPredict || 128
+    this.debug = options.debug ?? false
     this.log = options.log || ((message) => console.log(message))
     this.histories = new Map()
   }
@@ -128,11 +151,6 @@ class OllamaAgent {
       }
     }
 
-    const messages = [
-      { role: 'system', content: buildSystemPrompt(username) },
-      ...this.getHistory(username),
-      { role: 'user', content: `${content}\n/no_think` }
-    ]
     const definitions = this.skillRegistry.getToolDefinitions()
     const selectedDefinitions = selectSkillTools(content, definitions, {
       maxTools: this.maxSelectedTools
@@ -141,13 +159,29 @@ class OllamaAgent {
       selectedDefinitions.map((definition) => definition.name)
     )
     const tools = toOllamaTools(selectedDefinitions)
+    const mode = tools.length === 0 ? 'conversation' : 'action'
+    const systemPrompt = mode === 'conversation'
+      ? buildConversationPrompt(username)
+      : buildActionPrompt(username)
+    const messages = [
+      { role: 'system', content: systemPrompt },
+      ...this.getHistory(username),
+      { role: 'user', content: createUserMessage(content, this.provider) }
+    ]
     const executedTools = []
     const requestStartedAt = Date.now()
 
     this.log(
-      `[llm] selected tools for ${username}: ` +
+      `[llm] ${mode} mode; selected tools for ${username}: ` +
       `${[...allowedToolNames].join(', ') || 'none'}`
     )
+
+    if (this.debug) {
+      this.log(
+        `[llm:debug] model=${this.provider.model || 'unknown'} ` +
+        `think=${String(this.provider.think)} prompt=${JSON.stringify(content)}`
+      )
+    }
 
     try {
       for (let round = 0; round < this.maxToolRounds; round += 1) {
@@ -162,7 +196,13 @@ class OllamaAgent {
           response = await this.provider.chat({
             messages,
             tools,
-            signal: context.signal
+            signal: context.signal,
+            numCtx: mode === 'conversation'
+              ? this.conversationNumCtx
+              : undefined,
+            numPredict: mode === 'conversation'
+              ? this.conversationNumPredict
+              : undefined
           })
         } finally {
           const seconds = ((Date.now() - roundStartedAt) / 1000).toFixed(1)
@@ -170,6 +210,17 @@ class OllamaAgent {
         }
         const received = response.message || {}
         const toolCalls = received.tool_calls || []
+
+        if (this.debug && received.thinking) {
+          this.log(`[llm:thinking]\n${received.thinking}`)
+        }
+        if (this.debug && received.content) {
+          this.log(`[llm:content] ${JSON.stringify(received.content)}`)
+        }
+        if (this.debug && toolCalls.length > 0) {
+          this.log(`[llm:tool-calls] ${JSON.stringify(toolCalls)}`)
+        }
+
         const assistantMessage = {
           role: 'assistant',
           content: received.content || ''
@@ -232,6 +283,10 @@ class OllamaAgent {
             result = await this.skillRegistry.execute(name, input, context)
           }
 
+          if (this.debug) {
+            this.log(`[llm:tool-result] ${JSON.stringify(result)}`)
+          }
+
           roundResults.set(signature, result)
           executedTools.push({ name, input, result, duplicate })
 
@@ -276,3 +331,5 @@ class OllamaAgent {
 module.exports = OllamaAgent
 module.exports.toOllamaTools = toOllamaTools
 module.exports.finalizeReply = finalizeReply
+module.exports.buildConversationPrompt = buildConversationPrompt
+module.exports.buildActionPrompt = buildActionPrompt

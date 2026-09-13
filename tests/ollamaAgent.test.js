@@ -3,6 +3,7 @@ const assert = require('node:assert/strict')
 const OllamaAgent = require('../src/llm/OllamaAgent')
 const OllamaProvider = require('../src/llm/OllamaProvider')
 const { toOllamaTools, finalizeReply } = require('../src/llm/OllamaAgent')
+const { normalizeThinkOption } = require('../src/llm/OllamaProvider')
 const selectSkillTools = require('../src/llm/selectSkillTools')
 
 const silentLog = () => {}
@@ -30,6 +31,8 @@ function createProvider(responses) {
   const requests = []
   return {
     requests,
+    model: 'qwen3:4b',
+    think: false,
     async chat(request) {
       requests.push(request)
       return responses.shift()
@@ -96,7 +99,7 @@ test('agent executes a requested skill and returns its result to Ollama', async 
   assert.equal(calls[0].name, 'get_status')
   assert.equal(calls[0].context.signal, controller.signal)
   assert.equal(provider.requests.length, 2)
-  assert.match(provider.requests[0].messages[0].content, /\/no_think/)
+  assert.doesNotMatch(provider.requests[0].messages[0].content, /\/no_think/)
   const initialUserMessage = provider.requests[0].messages
     .find((message) => message.role === 'user')
   assert.match(initialUserMessage.content, /\/no_think$/)
@@ -235,6 +238,88 @@ test('selector sends no tools for ordinary conversation', () => {
   ]
 
   assert.deepEqual(selectSkillTools('Say hello in one short sentence', definitions), [])
+})
+
+test('ordinary conversation uses a small context and minimal prompt', async () => {
+  const provider = createProvider([
+    { message: { role: 'assistant', content: 'The sky is blue.' } }
+  ])
+  const agent = new OllamaAgent({
+    provider,
+    skillRegistry: createRegistry(),
+    log: silentLog
+  })
+
+  const result = await agent.ask('jacob48317', 'What color is the sky?')
+  const request = provider.requests[0]
+  const systemPrompt = request.messages[0].content
+
+  assert.equal(result.message, 'The sky is blue.')
+  assert.equal(request.numCtx, 2048)
+  assert.equal(request.numPredict, 128)
+  assert.deepEqual(request.tools, [])
+  assert.match(systemPrompt, /ordinary conversation/i)
+  assert.doesNotMatch(systemPrompt, /Use an available tool/)
+})
+
+test('Minecraft actions retain the tool-focused system prompt', async () => {
+  const provider = createProvider([
+    { message: { role: 'assistant', content: 'Done.' } }
+  ])
+  const definitions = [
+    {
+      name: 'make_item',
+      description: 'Make an item.',
+      inputSchema: { type: 'object', properties: {} }
+    }
+  ]
+  const registry = {
+    getToolDefinitions: () => definitions,
+    execute: async () => ({ ok: true })
+  }
+  const agent = new OllamaAgent({
+    provider,
+    skillRegistry: registry,
+    log: silentLog
+  })
+
+  await agent.ask('jacob48317', 'Make a stone pickaxe')
+
+  const request = provider.requests[0]
+  assert.equal(request.numCtx, undefined)
+  assert.equal(request.numPredict, undefined)
+  assert.equal(request.tools.length, 1)
+  assert.match(request.messages[0].content, /sole authority on recipes/i)
+})
+
+test('debug mode logs thinking separately from final content', async () => {
+  const provider = createProvider([{
+    message: {
+      role: 'assistant',
+      thinking: 'I should answer directly.',
+      content: 'Blue.'
+    }
+  }])
+  const logs = []
+  const agent = new OllamaAgent({
+    provider,
+    skillRegistry: createRegistry(),
+    debug: true,
+    log: (message) => logs.push(message)
+  })
+
+  const result = await agent.ask('jacob48317', 'What color is the sky?')
+
+  assert.equal(result.message, 'Blue.')
+  assert.ok(logs.some((message) => message.includes('[llm:thinking]')))
+  assert.ok(logs.some((message) => message.includes('[llm:content]')))
+})
+
+test('thinking defaults are model-aware', () => {
+  assert.equal(normalizeThinkOption(undefined, 'qwen3:4b'), false)
+  assert.equal(normalizeThinkOption(undefined, 'gpt-oss:20b-cloud'), 'low')
+  assert.equal(normalizeThinkOption('medium', 'gpt-oss:20b-cloud'), 'medium')
+  assert.equal(normalizeThinkOption(false, 'gpt-oss:20b-cloud'), 'low')
 })
 
 test('selector sends only tools relevant to the requested action', () => {

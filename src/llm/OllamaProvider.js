@@ -6,12 +6,35 @@ function createTimeoutError(ms) {
   return error
 }
 
+function isGptOssModel(model) {
+  return /gpt-oss/i.test(String(model || ''))
+}
+
+function normalizeThinkOption(value, model) {
+  if (value === undefined || value === null || value === '') {
+    return isGptOssModel(model) ? 'low' : false
+  }
+
+  const normalized = typeof value === 'string'
+    ? value.trim().toLowerCase()
+    : value
+
+  if (isGptOssModel(model)) {
+    if (['low', 'medium', 'high'].includes(normalized)) return normalized
+    return 'low'
+  }
+
+  if (normalized === true || normalized === 'true') return true
+  return false
+}
+
 class OllamaProvider {
   constructor(options = {}) {
     this.host = options.host || 'http://127.0.0.1:11434'
     this.model = options.model || 'qwen3:4b'
-    this.think = options.think ?? false
+    this.think = normalizeThinkOption(options.think, this.model)
     this.numCtx = options.numCtx || 4096
+    this.numPredict = options.numPredict || 384
     this.temperature = options.temperature ?? 0.2
     this.keepAlive = options.keepAlive || '10m'
     this.requestTimeoutMs = options.requestTimeoutMs || 180000
@@ -66,7 +89,7 @@ class OllamaProvider {
     }
   }
 
-  async chat({ messages, tools, signal }) {
+  async chat({ messages, tools, signal, numCtx, numPredict }) {
     const request = {
       model: this.model,
       messages,
@@ -74,7 +97,8 @@ class OllamaProvider {
       think: this.think,
       keep_alive: this.keepAlive,
       options: {
-        num_ctx: this.numCtx,
+        num_ctx: numCtx || this.numCtx,
+        num_predict: numPredict || this.numPredict,
         temperature: this.temperature
       }
     }
@@ -112,3 +136,4 @@ class OllamaProvider {
 }
 
 module.exports = OllamaProvider
+module.exports.normalizeThinkOption = normalizeThinkOption

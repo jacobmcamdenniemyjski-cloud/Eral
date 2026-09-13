@@ -6,6 +6,19 @@ const configureSurvival = require('./survival/configureSurvival')
 const OllamaProvider = require('./llm/OllamaProvider')
 const OllamaAgent = require('./llm/OllamaAgent')
 
+function envEnabled(value) {
+  return ['1', 'true', 'yes', 'on'].includes(
+    String(value || '').trim().toLowerCase()
+  )
+}
+
+function parseThinkSetting(value) {
+  if (value === undefined || value === '') return undefined
+  if (String(value).toLowerCase() === 'true') return true
+  if (String(value).toLowerCase() === 'false') return false
+  return String(value).toLowerCase()
+}
+
 async function main() {
   const bot = await createBot()
   const scheduler = new TaskScheduler()
@@ -16,11 +29,17 @@ async function main() {
   const ollamaProvider = new OllamaProvider({
     host: process.env.EARL_OLLAMA_HOST || 'http://127.0.0.1:11434',
     model: process.env.EARL_OLLAMA_MODEL || 'qwen3:4b',
-    numCtx: Number(process.env.EARL_OLLAMA_NUM_CTX) || 4096
+    numCtx: Number(process.env.EARL_OLLAMA_NUM_CTX) || 4096,
+    think: parseThinkSetting(process.env.EARL_OLLAMA_THINK)
   })
   const llmAgent = new OllamaAgent({
     provider: ollamaProvider,
-    skillRegistry: runtime.skillRegistry
+    skillRegistry: runtime.skillRegistry,
+    debug: envEnabled(process.env.EARL_LLM_DEBUG),
+    conversationNumCtx: Number(process.env.EARL_OLLAMA_CHAT_NUM_CTX) || 2048,
+    conversationNumPredict: Number(
+      process.env.EARL_OLLAMA_CHAT_NUM_PREDICT
+    ) || 128
   })
   runtime.llmAgent = llmAgent
 
