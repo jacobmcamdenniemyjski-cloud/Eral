@@ -11,6 +11,7 @@ const getInventory = require('../perception/getInventory')
 const gatherBlock = require('../gathering/gatherBlock')
 const craftItem = require('../crafting/craftItem')
 const attackNearestHostile = require('../combat/attackNearestHostile')
+const CombatReflex = require('../combat/CombatReflex')
 const storeItem = require('../inventory/storeItem')
 const takeItem = require('../inventory/takeItem')
 const equipItem = require('../inventory/equipItem')
@@ -130,6 +131,13 @@ function registerCommands(bot, scheduler, router) {
       }
     }
   })
+
+  const combatReflex = new CombatReflex(bot, scheduler, {
+    mode: 'defensive',
+    cancelForThreat: (reason) => commandQueue.cancel(reason),
+    notify: (message) => bot.chat(message)
+  })
+  combatReflex.start()
 
   function clearTaskIf(type, predicate = () => true) {
     const currentTask = scheduler.getCurrentTask()
@@ -357,6 +365,27 @@ function registerCommands(bot, scheduler, router) {
     }
   }
 
+  async function handleCombat(args, context) {
+    const requestedMode = args.trim().toLowerCase()
+    combatReflex.protect(context.username)
+
+    if (!requestedMode || requestedMode === 'status') {
+      const status = combatReflex.getStatus()
+      bot.chat(
+        `Combat is ${status.mode}` +
+        (status.protecting ? `; protecting ${status.protecting}.` : '.')
+      )
+      return
+    }
+
+    if (!combatReflex.setMode(requestedMode, context.username)) {
+      bot.chat('Usage: combat <passive|defensive|guard|aggressive|status>')
+      return
+    }
+
+    bot.chat(`Combat mode set to ${requestedMode}.`)
+  }
+
   async function handleFollowMe(args, context) {
     const accepted = scheduler.setTask({
       type: 'follow',
@@ -406,6 +435,7 @@ function registerCommands(bot, scheduler, router) {
     { verb: 'place', handler: handlePlace, timeoutMs: TIMEOUTS.place },
     { verb: 'goto', handler: handleGoto, timeoutMs: TIMEOUTS.goto },
     { verb: 'attack', handler: handleAttack, timeoutMs: TIMEOUTS.attack },
+    { verb: 'combat', handler: handleCombat, timeoutMs: TIMEOUTS.quick, passive: true },
     { verb: 'stop', handler: handleStop, timeoutMs: TIMEOUTS.quick },
     { verb: 'find', handler: handleFind, timeoutMs: TIMEOUTS.quick, passive: true },
     { verb: 'status', handler: handleStatus, timeoutMs: TIMEOUTS.quick, passive: true },
@@ -431,11 +461,13 @@ function registerCommands(bot, scheduler, router) {
 
   router.prefix('earl', async ({ args, username }) => {
     const text = args.trim()
+    combatReflex.protect(username)
     const singleMatch = !/\s+then\s+|(?:^|\s)repeat\s*$/i.test(text)
       ? matchVerb(text)
       : null
 
     if (singleMatch && singleMatch.verb === 'stop') {
+      combatReflex.suppress(10000)
       await commandQueue.stop('stopped by player')
       stopMovement(bot)
       bot.chat('Stopped.')
@@ -458,6 +490,11 @@ function registerCommands(bot, scheduler, router) {
       bot.chat(`I don't know how to "${text}".`)
       return
     }
+
+    // A direct player command takes control immediately. The short pause keeps
+    // the reflex from restarting during queue handoff; a continuing threat can
+    // still interrupt the new task one second later.
+    combatReflex.suppress(1000)
 
     await commandQueue.run(
       text,
