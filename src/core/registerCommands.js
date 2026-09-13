@@ -20,6 +20,10 @@ const buildLine = require('../building/buildLine')
 const buildWall = require('../building/buildWall')
 const buildFloor = require('../building/buildFloor')
 const CommandQueue = require('../scheduler/CommandQueue')
+const {
+  parseItemRequest,
+  resolveResourceName
+} = require('./parseItemRequest')
 
 const TIMEOUTS = {
   quick: 30000,
@@ -32,11 +36,6 @@ const TIMEOUTS = {
   floor: 600000,
   gather: 600000,
   goto: 600000
-}
-
-function getPositiveInteger(value, fallback = 1) {
-  const number = Number(value)
-  return Number.isInteger(number) && number > 0 ? number : fallback
 }
 
 function getBuildOrigin(parts, startIndex = 1) {
@@ -148,70 +147,84 @@ function registerCommands(bot, scheduler, router) {
   }
 
   async function handleGather(args, context) {
-    const parts = args.split(/\s+/)
-    const blockName = parts[0]
-    const amount = getPositiveInteger(parts[1], 1)
+    const request = parseItemRequest(bot, args, { kind: 'block' })
 
-    if (!blockName) return bot.chat('Usage: gather <block> <amount>')
-    if (amount > 64) return bot.chat('Gather at most 64 blocks per command.')
+    if (!request) return bot.chat('Usage: gather <block> <amount>')
+    if (request.amount > 64) {
+      return bot.chat('Gather at most 64 blocks per command.')
+    }
 
-    await gatherBlock(bot, blockName, amount, {
+    await gatherBlock(bot, request.name, request.amount, {
       signal: context.signal
     })
   }
 
   async function handleCraft(args, context) {
-    const parts = args.split(/\s+/)
-    const itemName = parts[0]
-    const amount = getPositiveInteger(parts[1], 1)
+    const request = parseItemRequest(bot, args, { kind: 'item' })
 
-    if (!itemName) return bot.chat('Usage: craft <item> <amount>')
+    if (!request) return bot.chat('Usage: craft <item> <amount>')
     if (context.signal.aborted) throw context.signal.reason
 
-    await craftItem(bot, itemName, amount)
+    await craftItem(bot, request.name, request.amount)
   }
 
   async function handleStore(args, context) {
-    const parts = args.split(/\s+/)
-    const itemName = parts[0]
-    const amount = getPositiveInteger(parts[1], 1)
+    const request = parseItemRequest(bot, args, { kind: 'item' })
 
-    if (!itemName) return bot.chat('Usage: store <item> <amount>')
+    if (!request) return bot.chat('Usage: store <item> <amount>')
     if (context.signal.aborted) throw context.signal.reason
 
-    await storeItem(bot, itemName, amount)
+    await storeItem(bot, request.name, request.amount)
   }
 
   async function handleTake(args, context) {
-    const parts = args.split(/\s+/)
-    const itemName = parts[0]
-    const amount = getPositiveInteger(parts[1], 1)
+    const request = parseItemRequest(bot, args, { kind: 'item' })
 
-    if (!itemName) return bot.chat('Usage: take <item> <amount>')
+    if (!request) return bot.chat('Usage: take <item> <amount>')
     if (context.signal.aborted) throw context.signal.reason
 
-    await takeItem(bot, itemName, amount)
+    await takeItem(bot, request.name, request.amount)
   }
 
   async function handleEquip(args, context) {
-    const itemName = args.trim()
-    if (!itemName) return bot.chat('Usage: equip <item>')
+    const request = parseItemRequest(bot, args, {
+      kind: 'item',
+      allowAmount: false
+    })
+
+    if (!request) return bot.chat('Usage: equip <item>')
     if (context.signal.aborted) throw context.signal.reason
 
-    await equipItem(bot, itemName)
+    await equipItem(bot, request.name)
   }
 
   async function handlePlace(args, context) {
-    const parts = args.split(/\s+/)
-    const blockName = parts[0]
-    if (!blockName) return bot.chat('Usage: place <block> [x y z]')
-
-    const hasCoordinates = parts.length > 1
-    const position = hasCoordinates ? getBuildOrigin(parts, 1) : null
-
-    if (hasCoordinates && !position) {
-      return bot.chat('Usage: place <block> [x y z]')
+    const parts = args.trim().split(/\s+/).filter(Boolean)
+    if (
+      parts[parts.length - 1] &&
+      parts[parts.length - 1].toLowerCase() === 'nearby'
+    ) {
+      parts.pop()
     }
+
+    let position = null
+    const coordinateStart = parts.length - 3
+    const coordinateCandidate = coordinateStart > 0
+      ? getBuildOrigin(parts, coordinateStart)
+      : null
+
+    if (coordinateCandidate) {
+      position = coordinateCandidate
+      parts.splice(coordinateStart, 3)
+    }
+
+    const request = parseItemRequest(bot, parts.join(' '), {
+      kind: 'block',
+      allowAmount: false
+    })
+
+    if (!request) return bot.chat('Usage: place <block> [x y z]')
+    const blockName = request.name
 
     try {
       const result = await placeBlock(bot, blockName, position, {
@@ -233,7 +246,7 @@ function registerCommands(bot, scheduler, router) {
 
   async function handleBuildLine(args, context) {
     const parts = args.split(/\s+/)
-    const blockName = parts[0]
+    const blockName = resolveResourceName(bot, parts[0], 'block') || parts[0]
     const origin = getBuildOrigin(parts, 1)
     const direction = parts[4] && parts[4].toLowerCase()
     const length = Number(parts[5])
@@ -251,7 +264,7 @@ function registerCommands(bot, scheduler, router) {
 
   async function handleBuildWall(args, context) {
     const parts = args.split(/\s+/)
-    const blockName = parts[0]
+    const blockName = resolveResourceName(bot, parts[0], 'block') || parts[0]
     const origin = getBuildOrigin(parts, 1)
     const direction = parts[4] && parts[4].toLowerCase()
     const width = Number(parts[5])
@@ -282,7 +295,7 @@ function registerCommands(bot, scheduler, router) {
 
   async function handleBuildFloor(args, context) {
     const parts = args.split(/\s+/)
-    const blockName = parts[0]
+    const blockName = resolveResourceName(bot, parts[0], 'block') || parts[0]
     const origin = getBuildOrigin(parts, 1)
     const width = Number(parts[4])
     const depth = Number(parts[5])

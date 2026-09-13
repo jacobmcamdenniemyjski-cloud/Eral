@@ -66,6 +66,27 @@ Earl starts in `defensive` mode. He automatically defends himself or the latest 
 
 Earl will not begin reflex combat at eight health or lower. `earl stop` immediately ends combat and suppresses the reflex for ten seconds so it cannot restart at once. Endermen and zombified piglins are ignored unless Earl or his protected player is hurt, except in aggressive mode.
 
+The reflex also waits two seconds before retrying the same entity. This prevents repeated combat starts and chat/log spam while still allowing Earl to retry an unfinished fight.
+
+## Friendly item and block names
+
+Item commands accept amounts before or after the name, spaces instead of underscores, and common plural forms. These are equivalent:
+
+```text
+earl gather birch_log 64
+earl gather 64 birch_logs
+earl gather 64 birch logs
+```
+
+Placement also accepts an optional `nearby` word:
+
+```text
+earl place crafting_table
+earl place crafting table nearby
+```
+
+The friendlier parsing applies to `gather`, `craft`, `store`, `take`, `equip`, and `place`. Exact Minecraft names remain the most reliable option.
+
 ## Development
 
 Install dependencies and run the automated tests:
