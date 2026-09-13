@@ -8,6 +8,7 @@ const getInventory = require('../perception/getInventory')
 const gatherBlock = require('../gathering/gatherBlock')
 const craftItem = require('../crafting/craftItem')
 const makeItem = require('../crafting/makeItem')
+const smeltItem = require('../smelting/smeltItem')
 const attackNearestHostile = require('../combat/attackNearestHostile')
 const storeItem = require('../inventory/storeItem')
 const takeItem = require('../inventory/takeItem')
@@ -244,6 +245,32 @@ function createSkillRegistry(options) {
       normalize(item, 'item'),
       amount,
       { signal: context.signal }
+    )
+  })
+
+  registry.register({
+    name: 'smelt_item',
+    description: 'Smelt inventory items in a nearby furnace and collect the output. Earl automatically selects available fuel unless a fuel item is specified.',
+    inputSchema: objectSchema({
+      item: resourceNameSchema('Minecraft input item to smelt.'),
+      amount: {
+        type: 'integer',
+        minimum: 1,
+        maximum: 64,
+        default: 1
+      },
+      fuel: resourceNameSchema('Optional Minecraft furnace fuel item.')
+    }, ['item', 'amount']),
+    timeoutMs: 900000,
+    safety: 'inventory_write',
+    execute: async ({ item, amount, fuel }, context) => smeltItem(
+      bot,
+      normalize(item, 'item'),
+      amount,
+      {
+        fuel: fuel ? normalize(fuel, 'item') : null,
+        signal: context.signal
+      }
     )
   })
 

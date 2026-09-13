@@ -17,7 +17,7 @@ AI / Goals → Deterministic Skills → Mineflayer → Minecraft
 
 ## Commands
 
-- `earl follow me` — Follows you.
+- `earl follow me` — Follows you, opens wooden/copper doors and fence gates, and will not dig through walls.
 - `earl stop` — Safely cancels the active queue, movement, gathering, or combat.
 - `earl goto <x> <y> <z>` — Travels within two blocks of the coordinates.
 - `earl look at me` — Looks toward you.
@@ -28,6 +28,7 @@ AI / Goals → Deterministic Skills → Mineflayer → Minecraft
 - `earl gather <block> <amount>` — Mines and collects up to 64 blocks.
 - `earl craft <item> <amount>` — Crafts items, using a nearby table when required.
 - `earl make <item> <amount>` — Crafts required intermediate items, then the requested item.
+- `earl smelt <item> <amount> [with <fuel>]` — Uses a nearby furnace and collects the finished items.
 - `earl store <item> <amount>` — Stores items in a nearby container.
 - `earl take <item> <amount>` — Withdraws items from a nearby container.
 - `earl equip <item>` — Equips or holds an item.
@@ -45,7 +46,7 @@ AI / Goals → Deterministic Skills → Mineflayer → Minecraft
 
 ## Structured skill registry
 
-Earl's chat commands and future AI planner share the same 22 deterministic
+Earl's chat commands and AI planner share the same 23 deterministic
 skills. Each skill has a stable name, description, JSON input schema, timeout,
 and safety category. Inputs are validated with Ajv before Minecraft code runs,
 and every execution returns a structured success or error result.

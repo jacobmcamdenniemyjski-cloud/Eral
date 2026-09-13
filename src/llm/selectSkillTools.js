@@ -40,6 +40,10 @@ const TOOL_GROUPS = [
     names: ['make_item']
   },
   {
+    pattern: /\b(smelt|smelting|furnace|cook ore|refine ore)\b/i,
+    names: ['smelt_item', 'get_inventory']
+  },
+  {
     pattern: /\b(store|deposit|put away)\b|\bput\b.+\b(chest|barrel)\b/i,
     names: ['store_item', 'get_inventory']
   },
