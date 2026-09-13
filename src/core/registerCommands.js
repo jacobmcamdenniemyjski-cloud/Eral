@@ -19,6 +19,8 @@ const buildLine = require('../building/buildLine')
 const buildWall = require('../building/buildWall')
 const buildFloor = require('../building/buildFloor')
 
+const withTimeout = require('../scheduler/withTimeout')
+
 function getPositiveInteger(value, fallback = 1) {
   const number = Number(value)
 
@@ -46,16 +48,6 @@ function getBuildOrigin(parts, startIndex = 1) {
     y: coordinates[1],
     z: coordinates[2]
   }
-}
-
-// Races a promise against a timer. 
-// Does NOT cancel the underlying work, just stops the queue from waiting on it forever
-function withTimeout(promise, ms, label) {
-  let timer
-  const timeout = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`"${label}" timed out after ${ms}ms`)), ms)
-  })
-  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer))
 }
 
 /**
