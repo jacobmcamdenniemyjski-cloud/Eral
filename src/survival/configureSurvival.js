@@ -8,30 +8,47 @@ const BANNED_FOOD = [
 ]
 
 function configureSurvival(bot) {
-  bot.autoEat.setOpts({
-    priority: 'foodPoints',
-    minHunger: 15,
-    minHealth: 14,
-    returnToLastItem: true,
-    offhand: false,
-    bannedFood: BANNED_FOOD,
-    strictErrors: false
-  })
+  function initializeAutoEat() {
+    if (!bot.autoEat) {
+      console.error('Automatic eating plugin failed to initialize.')
+      return
+    }
 
-  bot.autoEat.on('eatStart', ({ food }) => {
-    console.log(`Earl started eating ${food.name}.`)
-  })
+    bot.autoEat.setOpts({
+      priority: 'foodPoints',
+      minHunger: 15,
+      minHealth: 14,
+      returnToLastItem: true,
+      offhand: false,
+      bannedFood: BANNED_FOOD,
+      strictErrors: false
+    })
 
-  bot.autoEat.on('eatFinish', ({ food }) => {
-    console.log(`Earl finished eating ${food.name}.`)
-  })
+    bot.autoEat.on('eatStart', ({ food }) => {
+      console.log(`Earl started eating ${food.name}.`)
+    })
 
-  bot.autoEat.on('eatFail', (error) => {
-    console.error(`Automatic eating failed: ${error.message}`)
-  })
+    bot.autoEat.on('eatFinish', ({ food }) => {
+      console.log(`Earl finished eating ${food.name}.`)
+    })
+
+    bot.autoEat.on('eatFail', (error) => {
+      console.error(`Automatic eating failed: ${error.message}`)
+    })
+
+    bot.autoEat.enableAuto()
+  }
+
+  if (bot.autoEat) {
+    initializeAutoEat()
+  } else {
+    bot.once('inject_allowed', initializeAutoEat)
+  }
 
   bot.on('spawn', async () => {
-    bot.autoEat.enableAuto()
+    if (bot.autoEat && !bot.autoEat.enabled) {
+      bot.autoEat.enableAuto()
+    }
 
     try {
       await bot.armorManager.equipAll()
