@@ -125,28 +125,35 @@ function registerCommands(bot, scheduler, router) {
   })
 
   router.prefix('earl place', async ({ args }) => {
-    const parts = args.split(/\s+/)
-    const blockName = parts[0]
-    const position = getBuildOrigin(parts)
+  const parts = args.split(/\s+/)
+  const blockName = parts[0]
 
-    if (!blockName || !position) {
-      bot.chat('Usage: earl place <block> <x> <y> <z>')
-      return
+  if (!blockName) {
+    bot.chat('Usage: earl place <block> [x y z]')
+    return
+  }
+
+  const hasCoords = parts.length > 1
+  const position = hasCoords ? getBuildOrigin(parts) : null
+
+  if (hasCoords && !position) {
+    bot.chat('Usage: earl place <block> [x y z]')
+    return
+  }
+
+  try {
+    const result = await placeBlock(bot, blockName, position)
+
+    if (result.skipped) {
+      bot.chat(`${blockName} is already at that position.`)
+    } else {
+      bot.chat(`Placed ${blockName}.`)
     }
-
-    try {
-      const result = await placeBlock(bot, blockName, position)
-
-      if (result.skipped) {
-        bot.chat(`${blockName} is already at that position.`)
-      } else {
-        bot.chat(`Placed ${blockName}.`)
-      }
-    } catch (error) {
-      console.error(`Placement failed: ${error.message}`)
-      bot.chat(`I could not place ${blockName}: ${error.message}`)
-    }
-  })
+  } catch (error) {
+    console.error(`Placement failed: ${error.message}`)
+    bot.chat(`I could not place ${blockName}: ${error.message}`)
+  }
+})
 
   router.prefix('earl build line', async ({ args }) => {
     const parts = args.split(/\s+/)

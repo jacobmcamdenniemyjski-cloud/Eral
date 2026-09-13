@@ -1,4 +1,5 @@
 const { goals } = require('mineflayer-pathfinder')
+const { isPositionClear, isPositionClearOfEntities } = require('../perception/isPositionClear')
 
 const SUPPORT_OFFSETS = [
   [0, -1, 0],
@@ -41,7 +42,47 @@ function findSupportBlock(bot, target) {
   return null
 }
 
-async function placeBlock(bot, blockName, position) {
+function findPlaceablePosition(bot, radius = 4) {
+  const origin = bot.entity.position.floored()
+  const offsets = []
+
+  // get all offsets within the radius
+  for (let x = -radius; x <= radius; x++) {
+    for (let z = -radius; z <= radius; z++) {
+      if (x === 0 && z === 0) continue // earl cannot place block inside himself because that violates the laws of physics
+      const dist = Math.max(Math.abs(x), Math.abs(z))
+      offsets.push({x, z, dist})
+    }
+  }
+
+  offsets.sort((a, b) => a.dist - b.dist)
+
+  for (const {x, z} of offsets) {
+    const candidate = origin.offset(x, 0, z)
+    const block = bot.blockAt(candidate)
+
+    if (!block || !isReplaceable(block) || !isPositionClearOfEntities(bot, candidate)) continue
+
+    const support = findSupportBlock(bot, candidate)
+    if (support) {
+      return candidate
+    }
+  }
+
+  return null
+}
+
+async function placeBlock(bot, blockName, position = null) {
+  const pos = position || findPlaceablePosition(bot)
+
+  if (!pos) {
+    throw new Error(`could not find a suitable spot near me to place ${blockName}`)
+  }
+
+  return placeBlockAt(bot, blockName, pos)
+}
+
+async function placeBlockAt(bot, blockName, position) {
   const blockType = bot.registry.blocksByName[blockName]
   const itemType = bot.registry.itemsByName[blockName]
 
@@ -153,7 +194,7 @@ async function buildBlocks(bot, blockName, positions, label) {
 
   try {
     for (const position of uniquePositions) {
-      const result = await placeBlock(bot, blockName, position)
+      const result = await placeBlockAt(bot, blockName, position)
 
       if (result.placed) {
         placed += 1
@@ -172,5 +213,6 @@ async function buildBlocks(bot, blockName, positions, label) {
 
 module.exports = {
   placeBlock,
+  placeBlockAt,
   buildBlocks
 }
