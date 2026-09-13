@@ -27,6 +27,10 @@ class CombatReflex {
     this.scanIntervalMs = options.scanIntervalMs === undefined
       ? 250
       : options.scanIntervalMs
+    this.reengageCooldownMs = options.reengageCooldownMs === undefined
+      ? 2000
+      : options.reengageCooldownMs
+    this.now = options.now || Date.now
     this.cancelForThreat = options.cancelForThreat || (async () => {})
     this.notify = options.notify || (() => {})
     this.ownerUsername = null
@@ -34,6 +38,7 @@ class CombatReflex {
     this.activeController = null
     this.activeTarget = null
     this.suppressedUntil = 0
+    this.targetCooldowns = new Map()
     this.lastHealth = bot.health
     this.started = false
 
@@ -76,6 +81,7 @@ class CombatReflex {
     this.bot.removeListener('end', this.onEnd)
     this.started = false
     this.cancelCurrentFight('combat reflex stopped')
+    this.targetCooldowns.clear()
   }
 
   protect(username) {
@@ -108,7 +114,7 @@ class CombatReflex {
   }
 
   suppress(durationMs = 10000) {
-    this.suppressedUntil = Date.now() + durationMs
+    this.suppressedUntil = this.now() + durationMs
     this.cancelCurrentFight('combat reflex temporarily suppressed')
   }
 
@@ -178,6 +184,21 @@ class CombatReflex {
     return 0
   }
 
+  getTargetKey(entity) {
+    return entity && entity.id !== undefined ? entity.id : entity
+  }
+
+  isCoolingDown(entity) {
+    const key = this.getTargetKey(entity)
+    const expiresAt = this.targetCooldowns.get(key)
+
+    if (!expiresAt) return false
+    if (expiresAt > this.now()) return true
+
+    this.targetCooldowns.delete(key)
+    return false
+  }
+
   findThreat(options = {}) {
     const {
       reactiveOrigin = null,
@@ -193,7 +214,8 @@ class CombatReflex {
           !entity.position ||
           entity === this.bot.entity ||
           entity.type === 'player' ||
-          !HOSTILE_MOBS.has(entity.name)
+          !HOSTILE_MOBS.has(entity.name) ||
+          this.isCoolingDown(entity)
         ) {
           return false
         }
@@ -229,7 +251,7 @@ class CombatReflex {
   async scan(options = {}) {
     if (
       this.mode === 'passive' ||
-      Date.now() < this.suppressedUntil ||
+      this.now() < this.suppressedUntil ||
       this.activeTarget ||
       (this.bot.pvp && this.bot.pvp.target) ||
       !this.bot.entity ||
@@ -255,7 +277,7 @@ class CombatReflex {
 
       if (
         this.mode === 'passive' ||
-        Date.now() < this.suppressedUntil ||
+        this.now() < this.suppressedUntil ||
         this.bot.health <= this.minimumHealth ||
         !Object.values(this.bot.entities || {}).includes(threat)
       ) {
@@ -291,6 +313,11 @@ class CombatReflex {
       }
       return null
     } finally {
+      this.targetCooldowns.set(
+        this.getTargetKey(threat),
+        this.now() + this.reengageCooldownMs
+      )
+
       const currentTask = this.scheduler.getCurrentTask()
       if (currentTask && currentTask.type === 'reflex-attack') {
         this.scheduler.clearTask()
