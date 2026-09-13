@@ -11,7 +11,7 @@ class OllamaProvider {
     this.host = options.host || 'http://127.0.0.1:11434'
     this.model = options.model || 'qwen3:4b'
     this.think = options.think ?? false
-    this.numCtx = options.numCtx || 8192
+    this.numCtx = options.numCtx || 4096
     this.temperature = options.temperature ?? 0.2
     this.keepAlive = options.keepAlive || '10m'
     this.requestTimeoutMs = options.requestTimeoutMs || 180000
@@ -67,10 +67,9 @@ class OllamaProvider {
   }
 
   async chat({ messages, tools, signal }) {
-    return this.request((client) => client.chat({
+    const request = {
       model: this.model,
       messages,
-      tools,
       stream: false,
       think: this.think,
       keep_alive: this.keepAlive,
@@ -78,7 +77,11 @@ class OllamaProvider {
         num_ctx: this.numCtx,
         temperature: this.temperature
       }
-    }), { signal })
+    }
+
+    if (tools && tools.length > 0) request.tools = tools
+
+    return this.request((client) => client.chat(request), { signal })
   }
 
   async getStatus(options = {}) {

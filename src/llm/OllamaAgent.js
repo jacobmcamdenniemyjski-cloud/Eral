@@ -1,5 +1,11 @@
-function toOllamaTools(skillRegistry) {
-  return skillRegistry.getToolDefinitions().map((definition) => ({
+const selectSkillTools = require('./selectSkillTools')
+
+function toOllamaTools(source) {
+  const definitions = Array.isArray(source)
+    ? source
+    : source.getToolDefinitions()
+
+  return definitions.map((definition) => ({
     type: 'function',
     function: {
       name: definition.name,
@@ -24,12 +30,14 @@ function buildSystemPrompt(username) {
   return [
     'You are Earl, a capable Minecraft companion controlled through tools.',
     `The player speaking to you is ${username}.`,
-    'Use tools for every Minecraft observation or action. Never invent results.',
+    'Use an available tool for every Minecraft observation or action. Never invent results.',
     'Only change the world, inventory, movement, or combat when the player asks.',
     'Execute dependent steps in order and inspect each tool result before continuing.',
     'If a tool fails, explain the real failure or safely try a reasonable correction.',
     'Never claim an action succeeded unless its tool result has ok=true.',
-    'Keep the final Minecraft chat response to two short sentences.'
+    'Keep the final Minecraft chat response to two short sentences.',
+    'Return only the final response; never reveal analysis, planning, or scratch work.',
+    '/no_think'
   ].join(' ')
 }
 
@@ -40,6 +48,8 @@ class OllamaAgent {
     this.maxToolRounds = options.maxToolRounds || 6
     this.maxToolCalls = options.maxToolCalls || 12
     this.historyLimit = options.historyLimit || 8
+    this.maxSelectedTools = options.maxSelectedTools || 10
+    this.log = options.log || ((message) => console.log(message))
     this.histories = new Map()
   }
 
@@ -79,8 +89,21 @@ class OllamaAgent {
       ...this.getHistory(username),
       { role: 'user', content }
     ]
-    const tools = toOllamaTools(this.skillRegistry)
+    const definitions = this.skillRegistry.getToolDefinitions()
+    const selectedDefinitions = selectSkillTools(content, definitions, {
+      maxTools: this.maxSelectedTools
+    })
+    const allowedToolNames = new Set(
+      selectedDefinitions.map((definition) => definition.name)
+    )
+    const tools = toOllamaTools(selectedDefinitions)
     const executedTools = []
+    const requestStartedAt = Date.now()
+
+    this.log(
+      `[llm] selected tools for ${username}: ` +
+      `${[...allowedToolNames].join(', ') || 'none'}`
+    )
 
     try {
       for (let round = 0; round < this.maxToolRounds; round += 1) {
@@ -88,11 +111,19 @@ class OllamaAgent {
           throw context.signal.reason || new Error('Earl request was cancelled.')
         }
 
-        const response = await this.provider.chat({
-          messages,
-          tools,
-          signal: context.signal
-        })
+        const roundStartedAt = Date.now()
+        let response
+
+        try {
+          response = await this.provider.chat({
+            messages,
+            tools,
+            signal: context.signal
+          })
+        } finally {
+          const seconds = ((Date.now() - roundStartedAt) / 1000).toFixed(1)
+          this.log(`[llm] round ${round + 1} finished in ${seconds}s`)
+        }
         const received = response.message || {}
         const toolCalls = received.tool_calls || []
         const assistantMessage = {
@@ -130,7 +161,22 @@ class OllamaAgent {
           const input = parseArguments(
             call.function && call.function.arguments
           )
-          const result = await this.skillRegistry.execute(name, input, context)
+          let result
+
+          if (!allowedToolNames.has(name)) {
+            result = {
+              ok: false,
+              skill: name || 'unknown_tool',
+              error: {
+                code: 'TOOL_NOT_ALLOWED',
+                message: `Tool ${name || 'unknown_tool'} was not enabled for this request.`
+              }
+            }
+          } else {
+            this.log(`[llm] calling ${name} with ${JSON.stringify(input)}`)
+            result = await this.skillRegistry.execute(name, input, context)
+          }
+
           executedTools.push({ name, input, result })
 
           if (context.signal && context.signal.aborted) {
@@ -164,6 +210,9 @@ class OllamaAgent {
         },
         tools: executedTools
       }
+    } finally {
+      const seconds = ((Date.now() - requestStartedAt) / 1000).toFixed(1)
+      this.log(`[llm] request finished in ${seconds}s`)
     }
   }
 }
