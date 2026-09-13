@@ -1,22 +1,15 @@
 const { goals, Movements } = require('mineflayer-pathfinder')
+const DoorOpener = require('./DoorOpener')
 
 function getPlayerEntity(bot, playerName) {
   const player = bot.players[playerName]
   return player && player.entity ? player.entity : null
 }
 
-/**
- * @param {import('mineflayer').Bot} bot
- * @param {string} playerName
- * @param {{ timeoutMs?: number, pollMs?: number }} [options]
- */
 async function followPlayer(bot, playerName, { timeoutMs = 5000, pollMs = 200 } = {}) {
   let player = getPlayerEntity(bot, playerName)
-
-  // Right after combat (e.g. creeper knockback throwing Earl away), 
-  // the player entity can briefly drop out of tracking range. 
-  // Poll for a short window instead of giving up immediately
   const deadline = Date.now() + timeoutMs
+
   while (!player && Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, pollMs))
     player = getPlayerEntity(bot, playerName)
@@ -29,11 +22,17 @@ async function followPlayer(bot, playerName, { timeoutMs = 5000, pollMs = 200 } 
   }
 
   const movements = new Movements(bot)
+  movements.canDig = false
+  movements.canOpenDoors = false
   bot.pathfinder.setMovements(movements)
 
-  const goal = new goals.GoalFollow(player, 2)
-  bot.pathfinder.setGoal(goal, true)
+  bot.earl = bot.earl || {}
+  if (!bot.earl.doorOpener) {
+    bot.earl.doorOpener = new DoorOpener(bot)
+  }
+  bot.earl.doorOpener.start()
 
+  bot.pathfinder.setGoal(new goals.GoalFollow(player, 2), true)
   console.log(`Earl is now following ${playerName}.`)
   bot.chat(`Following ${playerName}.`)
   return true

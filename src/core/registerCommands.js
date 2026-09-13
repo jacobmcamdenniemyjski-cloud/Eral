@@ -74,6 +74,10 @@ function registerCommands(bot, scheduler, router) {
       }
     }
 
+    if (bot.earl && bot.earl.doorOpener) {
+      bot.earl.doorOpener.stop()
+    }
+
     if (typeof bot.clearControlStates === 'function') {
       bot.clearControlStates()
     }
@@ -174,6 +178,34 @@ function registerCommands(bot, scheduler, router) {
       item: request.name,
       amount: request.amount
     }, context)
+  }
+
+  async function handleSmelt(args, context) {
+    const parts = args.split(/\s+with\s+/i)
+    if (parts.length > 2) {
+      return bot.chat('Usage: smelt <item> <amount> [with <fuel>]')
+    }
+
+    const request = parseItemRequest(bot, parts[0], { kind: 'item' })
+    if (!request) {
+      return bot.chat('Usage: smelt <item> <amount> [with <fuel>]')
+    }
+
+    const input = {
+      item: request.name,
+      amount: request.amount
+    }
+
+    if (parts[1]) {
+      const fuel = parseItemRequest(bot, parts[1], {
+        kind: 'item',
+        allowAmount: false
+      })
+      if (!fuel) return bot.chat('I do not recognize that furnace fuel.')
+      input.fuel = fuel.name
+    }
+
+    return runSkill('smelt_item', input, context)
   }
 
   async function handleStore(args, context) {
@@ -490,6 +522,7 @@ function registerCommands(bot, scheduler, router) {
     { verb: 'gather', skill: 'gather_block', handler: handleGather },
     { verb: 'craft', skill: 'craft_item', handler: handleCraft },
     { verb: 'make', skill: 'make_item', handler: handleMake },
+    { verb: 'smelt', skill: 'smelt_item', handler: handleSmelt },
     { verb: 'store', skill: 'store_item', handler: handleStore },
     { verb: 'take', skill: 'take_item', handler: handleTake },
     { verb: 'equip', skill: 'equip_item', handler: handleEquip },
