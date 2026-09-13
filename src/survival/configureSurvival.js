@@ -4,39 +4,82 @@ const BANNED_FOOD = [
   'poisonous_potato',
   'pufferfish',
   'chorus_fruit',
-  'raw_chicken'
+  'chicken',
+  'suspicious_stew',
+  'golden_apple'
 ]
 
 function configureSurvival(bot) {
+  let armorTimer = null
+  let equippingArmor = false
+
+  function isArmor(item) {
+    return Boolean(
+      item &&
+      ['_helmet', '_chestplate', '_leggings', '_boots']
+        .some((suffix) => item.name.endsWith(suffix))
+    )
+  }
+
+  async function equipBestArmor() {
+    if (!bot.armorManager || equippingArmor) {
+      return
+    }
+
+    equippingArmor = true
+
+    try {
+      await bot.armorManager.equipAll()
+    } catch (error) {
+      console.error(`Automatic armor equip failed: ${error.message}`)
+    } finally {
+      equippingArmor = false
+    }
+  }
+
+  function scheduleArmorCheck() {
+    clearTimeout(armorTimer)
+    armorTimer = setTimeout(equipBestArmor, 200)
+  }
+
   function initializeAutoEat() {
     if (!bot.autoEat) {
       console.error('Automatic eating plugin failed to initialize.')
       return
     }
 
-    bot.autoEat.setOpts({
+    bot.autoEat.options = {
+      ...bot.autoEat.options,
       priority: 'foodPoints',
-      minHunger: 15,
-      minHealth: 14,
-      returnToLastItem: true,
+      startAt: 15,
+      eatingTimeout: 5000,
       offhand: false,
       bannedFood: BANNED_FOOD,
-      strictErrors: false
-    })
+      equipOldItem: true,
+      checkOnItemPickup: true
+    }
 
-    bot.autoEat.on('eatStart', ({ food }) => {
+    bot.on('autoeat_started', (food) => {
       console.log(`Earl started eating ${food.name}.`)
     })
 
-    bot.autoEat.on('eatFinish', ({ food }) => {
+    bot.on('autoeat_finished', (food) => {
       console.log(`Earl finished eating ${food.name}.`)
     })
 
-    bot.autoEat.on('eatFail', (error) => {
-      console.error(`Automatic eating failed: ${error.message}`)
+    bot.on('autoeat_error', (error) => {
+      if (error.message !== 'No food found.') {
+        console.error(`Automatic eating failed: ${error.message}`)
+      }
     })
 
-    bot.autoEat.enableAuto()
+    bot.autoEat.enable()
+
+    bot.inventory.on('updateSlot', (slot, oldItem, newItem) => {
+      if (isArmor(oldItem) || isArmor(newItem)) {
+        scheduleArmorCheck()
+      }
+    })
   }
 
   if (bot.autoEat) {
@@ -45,16 +88,12 @@ function configureSurvival(bot) {
     bot.once('inject_allowed', initializeAutoEat)
   }
 
-  bot.on('spawn', async () => {
-    if (bot.autoEat && !bot.autoEat.enabled) {
-      bot.autoEat.enableAuto()
+  bot.on('spawn', () => {
+    if (bot.autoEat) {
+      bot.autoEat.enable()
     }
 
-    try {
-      await bot.armorManager.equipAll()
-    } catch (error) {
-      console.error(`Automatic armor equip failed: ${error.message}`)
-    }
+    scheduleArmorCheck()
   })
 }
 

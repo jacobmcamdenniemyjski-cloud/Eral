@@ -2,10 +2,9 @@ const mineflayer = require('mineflayer')
 const { pathfinder } = require('mineflayer-pathfinder')
 const collectBlock = require('mineflayer-collectblock').plugin
 const armorManager = require('mineflayer-armor-manager')
+const autoEat = require('mineflayer-auto-eat').plugin
 
 async function createBot() {
-  const { loader: autoEat } = await import('mineflayer-auto-eat')
-
   const bot = mineflayer.createBot({
     host: 'localhost',
     port: 25565,
