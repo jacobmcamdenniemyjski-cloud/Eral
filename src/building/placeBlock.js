@@ -219,7 +219,7 @@ async function buildBlocks(bot, blockName, positions, label) {
 
   const available = getInventoryCount(bot, blockName)
 
-  if (available < required) {
+  if (available < required && !bot.game.gameMode.toLowerCase().includes("creative")) {
     bot.chat(`I need ${required} ${blockName}, but I only have ${available}.`)
     return false
   }
