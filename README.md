@@ -40,6 +40,8 @@ AI / Goals → Deterministic Skills → Mineflayer → Minecraft
 - `earl build wall <block> <x> <y> <z> <direction> <width> <height>` — Builds a wall.
 - `earl build floor <block> <x> <y> <z> <width> <depth>` — Builds a floor.
 - `earl skills` — Lists Earl's structured skills in the console.
+- `earl llm status` — Checks Ollama and confirms the configured model is installed.
+- `earl ask <request>` — Lets the local model plan and execute registered skills.
 
 ## Structured skill registry
 
@@ -65,6 +67,48 @@ const result = await bot.earl.skillRegistry.execute(
 
 Batch 10 adds the safe skill boundary only. It does not send chat to an LLM or
 require an AI API key yet.
+
+## Local Ollama setup
+
+Batch 11 uses Ollama's official JavaScript client and tool-calling loop. The
+default model is `qwen3:4b`, a relatively small local model with tool support.
+
+Install the model from PowerShell:
+
+```powershell
+ollama pull qwen3:4b
+ollama list
+```
+
+Ollama normally runs its local API automatically at
+`http://127.0.0.1:11434`. Start Earl and verify the connection:
+
+```cmd
+npm install
+npm start
+```
+
+```text
+earl llm status
+earl ask check your health and tell me how you are doing
+earl ask follow me
+earl ask make one wooden pickaxe
+```
+
+Only messages beginning with `earl ask` use the model. Existing deterministic
+commands continue to work when Ollama is offline. The model can request only
+the schema-validated skills in Earl's registry and cannot execute JavaScript.
+
+To try a different installed model for one PowerShell session:
+
+```powershell
+$env:EARL_OLLAMA_MODEL="qwen3:8b"
+$env:EARL_OLLAMA_NUM_CTX="8192"
+npm start
+```
+
+The optional `EARL_OLLAMA_HOST` variable can point Earl at another Ollama
+server. Larger context settings use more memory.
 
 ## Command queues
 

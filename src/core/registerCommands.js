@@ -17,6 +17,26 @@ function getBuildOrigin(parts, startIndex = 1) {
   return { x: coordinates[0], y: coordinates[1], z: coordinates[2] }
 }
 
+function sendChatChunks(bot, message, maxLength = 220) {
+  const words = String(message || '').trim().split(/\s+/).filter(Boolean)
+  const chunks = []
+  let current = ''
+
+  for (const word of words) {
+    if (!current) {
+      current = word.slice(0, maxLength)
+    } else if (`${current} ${word}`.length <= maxLength) {
+      current = `${current} ${word}`
+    } else {
+      chunks.push(current)
+      current = word.slice(0, maxLength)
+    }
+  }
+
+  if (current) chunks.push(current)
+  for (const chunk of chunks.slice(0, 3)) bot.chat(chunk)
+}
+
 function registerCommands(bot, scheduler, router) {
   bot.on('stoppedAttacking', () => {
     const currentTask = scheduler.getCurrentTask()
@@ -404,7 +424,64 @@ function registerCommands(bot, scheduler, router) {
     return names
   }
 
+  async function handleLlmStatus(args, context) {
+    const agent = bot.earl && bot.earl.llmAgent
+    if (!agent) {
+      bot.chat('The Ollama agent is not configured.')
+      return false
+    }
+
+    const status = await agent.getStatus({
+      signal: context.signal,
+      timeoutMs: 5000
+    })
+    console.log('Ollama status:', status)
+
+    if (!status.connected) {
+      bot.chat('Ollama is offline. Check the console for details.')
+      return false
+    }
+
+    if (!status.modelInstalled) {
+      bot.chat(`Ollama is online, but ${status.model} is not installed.`)
+      return false
+    }
+
+    bot.chat(`Ollama is ready with ${status.model}.`)
+    return status
+  }
+
+  async function handleAsk(args, context) {
+    const request = args.trim()
+    if (!request) return bot.chat('Usage: earl ask <natural language request>')
+
+    const agent = bot.earl && bot.earl.llmAgent
+    if (!agent) {
+      bot.chat('The Ollama agent is not configured.')
+      return false
+    }
+
+    bot.chat('Let me think.')
+    const result = await agent.ask(context.username, request, context)
+
+    if (!result.ok) {
+      console.error(`Ollama request failed: ${result.error.message}`)
+      bot.chat(`I could not finish that: ${result.error.message}`)
+      return false
+    }
+
+    sendChatChunks(bot, result.message)
+    return result
+  }
+
   const verbs = [
+    {
+      verb: 'llm status',
+      skill: null,
+      handler: handleLlmStatus,
+      passive: true,
+      timeoutMs: 35000
+    },
     { verb: 'build line', skill: 'build_line', handler: handleBuildLine },
     { verb: 'build wall', skill: 'build_wall', handler: handleBuildWall },
     { verb: 'build floor', skill: 'build_floor', handler: handleBuildFloor },
@@ -426,10 +503,16 @@ function registerCommands(bot, scheduler, router) {
     { verb: 'scan', skill: 'scan_nearby', handler: handleScan, passive: true },
     { verb: 'inventory', skill: 'get_inventory', handler: handleInventory, passive: true },
     { verb: 'task', skill: 'get_task', handler: handleTask, passive: true },
-    { verb: 'skills', skill: null, handler: handleSkills, passive: true }
+    { verb: 'skills', skill: null, handler: handleSkills, passive: true },
+    {
+      verb: 'ask',
+      skill: null,
+      handler: handleAsk,
+      timeoutMs: 900000
+    }
   ].map((entry) => ({
     ...entry,
-    timeoutMs: queueTimeoutFor(entry.skill)
+    timeoutMs: entry.timeoutMs || queueTimeoutFor(entry.skill)
   }))
 
   function matchVerb(segment) {
