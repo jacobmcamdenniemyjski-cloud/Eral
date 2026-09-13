@@ -10,6 +10,7 @@ const getInventory = require('../perception/getInventory')
 
 const gatherBlock = require('../gathering/gatherBlock')
 const craftItem = require('../crafting/craftItem')
+const makeItem = require('../crafting/makeItem')
 const attackNearestHostile = require('../combat/attackNearestHostile')
 const CombatReflex = require('../combat/CombatReflex')
 const storeItem = require('../inventory/storeItem')
@@ -30,6 +31,7 @@ const TIMEOUTS = {
   place: 60000,
   inventoryAction: 120000,
   craft: 120000,
+  make: 300000,
   attack: 120000,
   line: 180000,
   wall: 300000,
@@ -165,7 +167,22 @@ function registerCommands(bot, scheduler, router) {
     if (!request) return bot.chat('Usage: craft <item> <amount>')
     if (context.signal.aborted) throw context.signal.reason
 
-    await craftItem(bot, request.name, request.amount)
+    await craftItem(bot, request.name, request.amount, {
+      signal: context.signal
+    })
+  }
+
+  async function handleMake(args, context) {
+    const request = parseItemRequest(bot, args, { kind: 'item' })
+
+    if (!request) return bot.chat('Usage: make <item> <amount>')
+    if (request.amount > 64) {
+      return bot.chat('Make at most 64 items per command.')
+    }
+
+    await makeItem(bot, request.name, request.amount, {
+      signal: context.signal
+    })
   }
 
   async function handleStore(args, context) {
@@ -442,6 +459,7 @@ function registerCommands(bot, scheduler, router) {
     { verb: 'look at me', handler: handleLookAtMe, timeoutMs: TIMEOUTS.quick },
     { verb: 'gather', handler: handleGather, timeoutMs: TIMEOUTS.gather },
     { verb: 'craft', handler: handleCraft, timeoutMs: TIMEOUTS.craft },
+    { verb: 'make', handler: handleMake, timeoutMs: TIMEOUTS.make },
     { verb: 'store', handler: handleStore, timeoutMs: TIMEOUTS.inventoryAction },
     { verb: 'take', handler: handleTake, timeoutMs: TIMEOUTS.inventoryAction },
     { verb: 'equip', handler: handleEquip, timeoutMs: TIMEOUTS.quick },
