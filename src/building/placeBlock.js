@@ -1,7 +1,7 @@
-/** @typedef {import('mineflayer').Bot} Bot */
-
 const { goals } = require('mineflayer-pathfinder')
-const { isPositionClearOfEntities } = require('../perception/isPositionClear')
+const {
+  isPositionClearOfEntities
+} = require('../perception/isPositionClear')
 
 const SUPPORT_OFFSETS = [
   [0, -1, 0],
@@ -12,10 +12,12 @@ const SUPPORT_OFFSETS = [
   [0, 1, 0]
 ]
 
-/**
- * @param {Bot} bot
- * @param {import('vec3').Vec3} position
- */
+function throwIfCancelled(signal) {
+  if (signal && signal.aborted) {
+    throw signal.reason || new Error('Building was cancelled.')
+  }
+}
+
 function toBlockPosition(bot, position) {
   const origin = bot.entity.position.floored()
 
@@ -26,24 +28,22 @@ function toBlockPosition(bot, position) {
   )
 }
 
-/**
- * @param {Bot} bot
- * @param {string} itemName
- */
 function getInventoryCount(bot, itemName) {
   return bot.inventory.items()
     .filter((item) => item.name === itemName)
     .reduce((total, item) => total + item.count, 0)
 }
 
+function isCreative(bot) {
+  return String(bot.game && bot.game.gameMode)
+    .toLowerCase()
+    .includes('creative')
+}
+
 function isReplaceable(block) {
   return block && block.boundingBox === 'empty'
 }
 
-/**
- * @param {Bot} bot
- * @param {import('vec3').Vec3} target
- */
 function findSupportBlock(bot, target) {
   for (const [x, y, z] of SUPPORT_OFFSETS) {
     const block = bot.blockAt(target.offset(x, y, z))
@@ -56,33 +56,34 @@ function findSupportBlock(bot, target) {
   return null
 }
 
-/**
- * @param {Bot} bot
- * @param {number} radius
- */
 function findPlaceablePosition(bot, radius = 4) {
   const origin = bot.entity.position.floored()
   const offsets = []
 
-  // get all offsets within the radius
-  for (let x = -radius; x <= radius; x++) {
-    for (let z = -radius; z <= radius; z++) {
-      if (x === 0 && z === 0) continue // earl cannot place block inside himself because that violates the laws of physics
-      const dist = Math.max(Math.abs(x), Math.abs(z))
-      offsets.push({x, z, dist})
+  for (let x = -radius; x <= radius; x += 1) {
+    for (let z = -radius; z <= radius; z += 1) {
+      if (x === 0 && z === 0) continue
+
+      offsets.push({
+        x,
+        z,
+        distance: Math.max(Math.abs(x), Math.abs(z))
+      })
     }
   }
 
-  offsets.sort((a, b) => a.dist - b.dist)
+  offsets.sort((a, b) => a.distance - b.distance)
 
-  for (const {x, z} of offsets) {
-    const candidate = origin.offset(x, 0, z)
+  for (const offset of offsets) {
+    const candidate = origin.offset(offset.x, 0, offset.z)
     const block = bot.blockAt(candidate)
 
-    if (!block || !isReplaceable(block) || !isPositionClearOfEntities(bot, candidate)) continue
-
-    const support = findSupportBlock(bot, candidate)
-    if (support) {
+    if (
+      block &&
+      isReplaceable(block) &&
+      isPositionClearOfEntities(bot, candidate) &&
+      findSupportBlock(bot, candidate)
+    ) {
       return candidate
     }
   }
@@ -90,27 +91,22 @@ function findPlaceablePosition(bot, radius = 4) {
   return null
 }
 
-/**
- * @param {Bot} bot
- * @param {string} blockName
- * @param {import('vec3').Vec3} [position=null]
- */
-async function placeBlock(bot, blockName, position = null) {
-  const pos = position || findPlaceablePosition(bot)
+async function placeBlock(bot, blockName, position = null, options = {}) {
+  const target = position || findPlaceablePosition(bot)
 
-  if (!pos) {
-    throw new Error(`could not find a suitable spot near me to place ${blockName}`)
+  if (!target) {
+    throw new Error(
+      `could not find a suitable spot near me to place ${blockName}`
+    )
   }
 
-  return placeBlockAt(bot, blockName, pos)
+  return placeBlockAt(bot, blockName, target, options)
 }
 
-/**
- * @param {Bot} bot
- * @param {string} blockName
- * @param {import('vec3').Vec3} position
- */
-async function placeBlockAt(bot, blockName, position) {
+async function placeBlockAt(bot, blockName, position, options = {}) {
+  const { signal } = options
+  throwIfCancelled(signal)
+
   const blockType = bot.registry.blocksByName[blockName]
   const itemType = bot.registry.itemsByName[blockName]
 
@@ -133,6 +129,10 @@ async function placeBlockAt(bot, blockName, position) {
     throw new Error(`${target} is occupied by ${currentBlock.name}`)
   }
 
+  if (!isPositionClearOfEntities(bot, target)) {
+    throw new Error(`${target} is occupied by an entity`)
+  }
+
   const item = bot.inventory.items()
     .find((inventoryItem) => inventoryItem.name === blockName)
 
@@ -152,6 +152,8 @@ async function placeBlockAt(bot, blockName, position) {
     )
   }
 
+  throwIfCancelled(signal)
+
   const supportBlock = findSupportBlock(bot, target)
 
   if (!supportBlock) {
@@ -159,9 +161,11 @@ async function placeBlockAt(bot, blockName, position) {
   }
 
   await bot.equip(item, 'hand')
+  throwIfCancelled(signal)
 
   const faceVector = target.minus(supportBlock.position)
   await bot.placeBlock(supportBlock, faceVector)
+  throwIfCancelled(signal)
 
   const placedBlock = bot.blockAt(target)
 
@@ -172,13 +176,15 @@ async function placeBlockAt(bot, blockName, position) {
   return { placed: true, skipped: false }
 }
 
-/**
- * @param {Bot} bot
- * @param {string} blockName
- * @param {import('vec3').Vec3[]} positions
- * @param {string} label
- */
-async function buildBlocks(bot, blockName, positions, label) {
+async function buildBlocks(
+  bot,
+  blockName,
+  positions,
+  label,
+  options = {}
+) {
+  const { signal } = options
+
   if (
     !bot.registry.blocksByName[blockName] ||
     !bot.registry.itemsByName[blockName]
@@ -197,6 +203,8 @@ async function buildBlocks(bot, blockName, positions, label) {
   let required = 0
 
   for (const position of uniquePositions) {
+    throwIfCancelled(signal)
+
     const target = toBlockPosition(bot, position)
     const block = bot.blockAt(target)
 
@@ -205,12 +213,15 @@ async function buildBlocks(bot, blockName, positions, label) {
       return false
     }
 
-    if (block.name === blockName) {
-      continue
-    }
+    if (block.name === blockName) continue
 
     if (!isReplaceable(block)) {
       bot.chat(`I cannot build there; ${target} contains ${block.name}.`)
+      return false
+    }
+
+    if (!isPositionClearOfEntities(bot, target)) {
+      bot.chat(`I cannot build there; an entity is at ${target}.`)
       return false
     }
 
@@ -219,7 +230,7 @@ async function buildBlocks(bot, blockName, positions, label) {
 
   const available = getInventoryCount(bot, blockName)
 
-  if (available < required && !bot.game.gameMode.toLowerCase().includes("creative")) {
+  if (available < required && !isCreative(bot)) {
     bot.chat(`I need ${required} ${blockName}, but I only have ${available}.`)
     return false
   }
@@ -228,17 +239,24 @@ async function buildBlocks(bot, blockName, positions, label) {
 
   try {
     for (const position of uniquePositions) {
-      const result = await placeBlockAt(bot, blockName, position)
+      throwIfCancelled(signal)
 
-      if (result.placed) {
-        placed += 1
-      }
+      const result = await placeBlockAt(
+        bot,
+        blockName,
+        position,
+        options
+      )
+
+      if (result.placed) placed += 1
     }
 
     console.log(`Built ${label} using ${placed} ${blockName}.`)
     bot.chat(`Built ${label} using ${placed} ${blockName}.`)
     return true
   } catch (error) {
+    if (signal && signal.aborted) throw error
+
     console.error(`Building stopped after ${placed} blocks: ${error.message}`)
     bot.chat(`Building stopped after ${placed} blocks: ${error.message}`)
     return false

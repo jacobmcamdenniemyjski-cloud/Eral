@@ -14,7 +14,8 @@ async function buildLine(
   blockName,
   origin,
   direction,
-  length
+  length,
+  options = {}
 ) {
   const offset = DIRECTIONS[direction]
 
@@ -42,7 +43,8 @@ async function buildLine(
     bot,
     blockName,
     positions,
-    `${length}-block line`
+    `${length}-block line`,
+    options
   )
 }
 

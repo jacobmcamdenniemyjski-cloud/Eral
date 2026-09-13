@@ -1,6 +1,13 @@
 const { buildBlocks } = require('./placeBlock')
 
-async function buildFloor(bot, blockName, origin, width, depth) {
+async function buildFloor(
+  bot,
+  blockName,
+  origin,
+  width,
+  depth,
+  options = {}
+) {
   if (!Number.isInteger(width) || width < 1 || width > 16) {
     bot.chat('Floor width must be between 1 and 16.')
     return false
@@ -32,7 +39,8 @@ async function buildFloor(bot, blockName, origin, width, depth) {
     bot,
     blockName,
     positions,
-    `${width}x${depth} floor`
+    `${width}x${depth} floor`,
+    options
   )
 }
 
