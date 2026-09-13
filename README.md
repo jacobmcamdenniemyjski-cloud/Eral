@@ -27,6 +27,7 @@ AI / Goals → Deterministic Skills → Mineflayer → Minecraft
 - `earl inventory` — Lists inventory in the console.
 - `earl gather <block> <amount>` — Mines and collects up to 64 blocks.
 - `earl craft <item> <amount>` — Crafts items, using a nearby table when required.
+- `earl make <item> <amount>` — Crafts required intermediate items, then the requested item.
 - `earl store <item> <amount>` — Stores items in a nearby container.
 - `earl take <item> <amount>` — Withdraws items from a nearby container.
 - `earl equip <item>` — Equips or holds an item.
@@ -86,6 +87,16 @@ earl place crafting table nearby
 ```
 
 The friendlier parsing applies to `gather`, `craft`, `store`, `take`, `equip`, and `place`. Exact Minecraft names remain the most reliable option.
+
+## Multi-step crafting
+
+`craft` performs one recipe with ingredients Earl already has. `make` creates craftable intermediate ingredients first. For example, with two logs and a crafting table nearby:
+
+```text
+earl make wooden pickaxe 1
+```
+
+Earl can turn logs into planks, planks into sticks, and then craft the pickaxe. He reports the missing raw material if the plan cannot be completed. Batch 9 plans crafting only: it does not automatically gather missing raw materials or place a crafting table yet.
 
 ## Development
 
