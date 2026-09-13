@@ -2,7 +2,7 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 const OllamaAgent = require('../src/llm/OllamaAgent')
 const OllamaProvider = require('../src/llm/OllamaProvider')
-const { toOllamaTools } = require('../src/llm/OllamaAgent')
+const { toOllamaTools, finalizeReply } = require('../src/llm/OllamaAgent')
 const selectSkillTools = require('../src/llm/selectSkillTools')
 
 const silentLog = () => {}
@@ -97,6 +97,9 @@ test('agent executes a requested skill and returns its result to Ollama', async 
   assert.equal(calls[0].context.signal, controller.signal)
   assert.equal(provider.requests.length, 2)
   assert.match(provider.requests[0].messages[0].content, /\/no_think/)
+  const initialUserMessage = provider.requests[0].messages
+    .find((message) => message.role === 'user')
+  assert.match(initialUserMessage.content, /\/no_think$/)
 
   const toolMessage = provider.requests[1].messages
     .filter((message) => message.role === 'tool')
@@ -247,7 +250,68 @@ test('selector sends only tools relevant to the requested action', () => {
   assert.deepEqual(
     selectSkillTools('Make one wooden pickaxe', definitions)
       .map((definition) => definition.name),
-    ['get_inventory', 'craft_item', 'make_item']
+    ['make_item']
+  )
+})
+
+test('nearby chest wording selects storage without an entity scan', () => {
+  const definitions = [
+    { name: 'get_inventory' },
+    { name: 'scan_nearby' },
+    { name: 'gather_block' },
+    { name: 'store_item' }
+  ]
+
+  const selected = selectSkillTools(
+    'Gather four logs and put them in the nearby chest',
+    definitions
+  ).map((definition) => definition.name)
+
+  assert.deepEqual(selected, [
+    'get_inventory',
+    'gather_block',
+    'store_item'
+  ])
+})
+
+test('duplicate tool calls in one model round execute only once', async () => {
+  const duplicateCalls = [
+    { function: { name: 'get_status', arguments: {} } },
+    { function: { name: 'get_status', arguments: {} } }
+  ]
+  const provider = createProvider([
+    { message: { role: 'assistant', content: '', tool_calls: duplicateCalls } },
+    { message: { role: 'assistant', content: 'You are healthy.' } }
+  ])
+  let executionCount = 0
+  const agent = new OllamaAgent({
+    provider,
+    skillRegistry: createRegistry(async () => {
+      executionCount += 1
+      return { ok: true, skill: 'get_status', data: { health: 20 } }
+    }),
+    log: silentLog
+  })
+
+  const result = await agent.ask('jacob48317', 'Check your health')
+
+  assert.equal(result.ok, true)
+  assert.equal(executionCount, 1)
+  assert.equal(result.tools.length, 2)
+  assert.equal(result.tools[0].duplicate, false)
+  assert.equal(result.tools[1].duplicate, true)
+})
+
+test('reasoning-style output is blocked from Minecraft chat', () => {
+  const leakedReasoning = [
+    'Okay, the user wants me to say hello.',
+    'Let me check the tools available.',
+    'The response should be short.'
+  ].join(' ')
+
+  assert.equal(
+    finalizeReply(leakedReasoning, 'say hello', []),
+    'Hello!'
   )
 })
 

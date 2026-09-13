@@ -207,7 +207,7 @@ function createSkillRegistry(options) {
 
   registry.register({
     name: 'gather_block',
-    description: 'Mine and collect a quantity of nearby blocks.',
+    description: 'Mine and collect nearby blocks. Generic log, logs, wood, tree, and trees names are accepted and resolve to a nearby log species.',
     inputSchema: itemAmountSchema('block'),
     timeoutMs: 600000,
     safety: 'world_write',
@@ -235,7 +235,7 @@ function createSkillRegistry(options) {
 
   registry.register({
     name: 'make_item',
-    description: 'Craft intermediate ingredients and then a requested item.',
+    description: 'Authoritative crafting planner for every make or craft request. Call this directly: it uses exact Minecraft registry recipes, checks inventory, crafts intermediate ingredients, and reports missing materials. Never calculate a recipe yourself.',
     inputSchema: itemAmountSchema('item'),
     timeoutMs: 300000,
     safety: 'inventory_write',
@@ -249,7 +249,7 @@ function createSkillRegistry(options) {
 
   registry.register({
     name: 'store_item',
-    description: 'Store inventory items in a nearby chest or barrel.',
+    description: 'Store inventory items in a nearby chest or barrel. This skill finds and opens the container itself; do not use scan_nearby to look for containers.',
     inputSchema: itemAmountSchema('item'),
     timeoutMs: 120000,
     safety: 'inventory_write',

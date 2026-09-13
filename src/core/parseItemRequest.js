@@ -4,6 +4,25 @@ const REGISTRY_KEYS = {
   either: ['itemsByName', 'blocksByName']
 }
 
+const GENERIC_FAMILIES = {
+  log: {
+    matches: (name) => name.endsWith('_log'),
+    preferred: 'oak_log'
+  },
+  wood: {
+    matches: (name) => name.endsWith('_log'),
+    preferred: 'oak_log'
+  },
+  tree: {
+    matches: (name) => name.endsWith('_log'),
+    preferred: 'oak_log'
+  },
+  plank: {
+    matches: (name) => name.endsWith('_planks'),
+    preferred: 'oak_planks'
+  }
+}
+
 function normalizeResourceName(value) {
   return String(value || '')
     .trim()
@@ -32,6 +51,87 @@ function getNameCandidates(value) {
   return [...new Set(candidates.filter(Boolean))]
 }
 
+function getGenericFamily(value) {
+  for (const candidate of getNameCandidates(value)) {
+    if (GENERIC_FAMILIES[candidate]) return GENERIC_FAMILIES[candidate]
+  }
+
+  return null
+}
+
+function getMatchingRegistryNames(bot, registryKey, family) {
+  const entries = Object.entries(
+    (bot.registry && bot.registry[registryKey]) || {}
+  )
+
+  return entries
+    .filter(([name]) => family.matches(name))
+    .map(([name, definition]) => ({ name, definition }))
+}
+
+function resolveInventoryFamily(bot, matches) {
+  if (!bot.inventory || typeof bot.inventory.items !== 'function') return null
+
+  const allowedNames = new Set(matches.map((match) => match.name))
+  const counts = new Map()
+
+  for (const item of bot.inventory.items()) {
+    if (!allowedNames.has(item.name)) continue
+    counts.set(item.name, (counts.get(item.name) || 0) + item.count)
+  }
+
+  return Array.from(counts)
+    .sort((left, right) => right[1] - left[1])[0]?.[0] || null
+}
+
+function resolveNearbyBlockFamily(bot, matches) {
+  if (typeof bot.findBlock !== 'function') return null
+
+  const ids = matches
+    .map((match) => match.definition && match.definition.id)
+    .filter(Number.isInteger)
+
+  if (ids.length === 0) return null
+
+  const found = bot.findBlock({ matching: ids, maxDistance: 32 })
+  return found && found.name ? found.name : null
+}
+
+function resolveGenericResourceName(bot, value, kind) {
+  const family = getGenericFamily(value)
+  if (!family) return null
+
+  if (kind === 'item' || kind === 'either') {
+    const itemMatches = getMatchingRegistryNames(bot, 'itemsByName', family)
+    const inventoryMatch = resolveInventoryFamily(bot, itemMatches)
+    if (inventoryMatch) return inventoryMatch
+
+    const preferredItem = itemMatches.find(({ name }) => (
+      name === family.preferred
+    ))
+    if (preferredItem && kind === 'item') return preferredItem.name
+  }
+
+  if (kind === 'block' || kind === 'either') {
+    const blockMatches = getMatchingRegistryNames(bot, 'blocksByName', family)
+    const nearbyMatch = resolveNearbyBlockFamily(bot, blockMatches)
+    if (nearbyMatch) return nearbyMatch
+
+    const preferredBlock = blockMatches.find(({ name }) => (
+      name === family.preferred
+    ))
+    if (preferredBlock) return preferredBlock.name
+    if (blockMatches[0]) return blockMatches[0].name
+  }
+
+  if (kind === 'item') {
+    const itemMatches = getMatchingRegistryNames(bot, 'itemsByName', family)
+    if (itemMatches[0]) return itemMatches[0].name
+  }
+
+  return null
+}
+
 function resolveResourceName(bot, value, kind = 'either') {
   const registryKeys = REGISTRY_KEYS[kind] || REGISTRY_KEYS.either
 
@@ -43,7 +143,7 @@ function resolveResourceName(bot, value, kind = 'either') {
     }
   }
 
-  return null
+  return resolveGenericResourceName(bot, value, kind)
 }
 
 function parseStrictPositiveInteger(value) {
@@ -107,5 +207,6 @@ function parseItemRequest(bot, text, options = {}) {
 module.exports = {
   normalizeResourceName,
   parseItemRequest,
-  resolveResourceName
+  resolveResourceName,
+  resolveGenericResourceName
 }
