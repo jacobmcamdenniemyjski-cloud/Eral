@@ -10,6 +10,7 @@ const getInventory = require('../perception/getInventory')
 
 const gatherBlock = require('../gathering/gatherBlock')
 const craftItem = require('../crafting/craftItem')
+const attackNearestHostile = require('../combat/attackNearestHostile')
 
 function getPositiveInteger(value, fallback = 1) {
   const number = Number(value)
@@ -22,6 +23,14 @@ function getPositiveInteger(value, fallback = 1) {
 }
 
 function registerCommands(bot, scheduler, router) {
+  bot.on('stoppedAttacking', () => {
+    const currentTask = scheduler.getCurrentTask()
+
+    if (currentTask && currentTask.type === 'attack') {
+      scheduler.clearTask()
+    }
+  })
+
   router.exact('earl inventory', async () => {
     console.log(getInventory(bot))
   })
@@ -91,7 +100,38 @@ function registerCommands(bot, scheduler, router) {
 
   router.exact('earl stop', async () => {
     scheduler.clearTask()
+
+    if (bot.pvp) {
+      bot.pvp.forceStop()
+    }
+
     stopMovement(bot)
+  })
+
+  router.prefix('earl attack', async ({ args }) => {
+    const mobName = args.trim().toLowerCase()
+
+    if (!mobName) {
+      bot.chat('Usage: earl attack <hostile mob>')
+      return
+    }
+
+    const accepted = scheduler.setTask({
+      type: 'attack',
+      target: mobName,
+      priority: 300
+    })
+
+    if (!accepted) {
+      bot.chat('I am already handling a higher-priority task.')
+      return
+    }
+
+    const target = attackNearestHostile(bot, mobName)
+
+    if (!target) {
+      scheduler.clearTask()
+    }
   })
 
   router.exact('earl look at me', async ({ username }) => {
