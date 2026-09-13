@@ -12,7 +12,7 @@ const TOOL_GROUPS = [
     names: ['get_inventory']
   },
   {
-    pattern: /\b(scan|nearby|around you|what do you see|entities|players?|mobs?)\b/i,
+    pattern: /\b(scan|around you|what do you see|entities|players?|mobs?)\b|what(?:'s| is) nearby/i,
     names: ['scan_nearby']
   },
   {
@@ -37,10 +37,10 @@ const TOOL_GROUPS = [
   },
   {
     pattern: /\b(craft|make|create|produce)\b/i,
-    names: ['make_item', 'craft_item', 'get_inventory']
+    names: ['make_item']
   },
   {
-    pattern: /\b(store|deposit|put away)\b/i,
+    pattern: /\b(store|deposit|put away)\b|\bput\b.+\b(chest|barrel)\b/i,
     names: ['store_item', 'get_inventory']
   },
   {

@@ -26,6 +26,47 @@ function parseArguments(value) {
   }
 }
 
+const REASONING_OUTPUT_PATTERN = new RegExp([
+  'the user (?:wants|asked|is asking)',
+  'let me (?:think|check|see)',
+  'i (?:first|now) (?:need to|should|will)',
+  'i need to (?:call|use|check|determine)',
+  'the (?:available )?tools? (?:are|include)',
+  'the instructions say',
+  'the response should'
+].join('|'), 'i')
+
+function fallbackReply(prompt, executedTools) {
+  const quotedSpeech = String(prompt).match(/\bsay\s+["“'](.+?)["”']/i)
+  if (quotedSpeech) return quotedSpeech[1].slice(0, 220)
+  if (/\b(?:say\s+)?(?:hello|hi|hey)\b/i.test(prompt)) return 'Hello!'
+
+  const lastTool = executedTools.at(-1)
+  if (lastTool && lastTool.result && lastTool.result.ok) return 'Done.'
+  if (lastTool && lastTool.result && lastTool.result.error) {
+    return lastTool.result.error.message || 'I could not complete that.'
+  }
+
+  return 'I could not produce a concise answer.'
+}
+
+function finalizeReply(rawReply, prompt, executedTools) {
+  const reply = String(rawReply || '')
+    .replace(/<think>[\s\S]*?<\/think>/gi, '')
+    .replace(/<analysis>[\s\S]*?<\/analysis>/gi, '')
+    .trim()
+
+  if (
+    !reply ||
+    REASONING_OUTPUT_PATTERN.test(reply) ||
+    reply.length > 440
+  ) {
+    return fallbackReply(prompt, executedTools)
+  }
+
+  return reply
+}
+
 function buildSystemPrompt(username) {
   return [
     'You are Earl, a capable Minecraft companion controlled through tools.',
@@ -33,6 +74,9 @@ function buildSystemPrompt(username) {
     'Use an available tool for every Minecraft observation or action. Never invent results.',
     'Only change the world, inventory, movement, or combat when the player asks.',
     'Execute dependent steps in order and inspect each tool result before continuing.',
+    'When make_item is available, call it immediately for every make or craft request. It is the sole authority on recipes; never calculate Minecraft recipes yourself.',
+    'The store_item skill finds nearby chests and barrels itself. Never scan for a container before storing.',
+    'Pass generic resource words such as log, logs, wood, or trees to tools instead of rejecting them yourself.',
     'If a tool fails, explain the real failure or safely try a reasonable correction.',
     'Never claim an action succeeded unless its tool result has ok=true.',
     'Keep the final Minecraft chat response to two short sentences.',
@@ -87,7 +131,7 @@ class OllamaAgent {
     const messages = [
       { role: 'system', content: buildSystemPrompt(username) },
       ...this.getHistory(username),
-      { role: 'user', content }
+      { role: 'user', content: `${content}\n/no_think` }
     ]
     const definitions = this.skillRegistry.getToolDefinitions()
     const selectedDefinitions = selectSkillTools(content, definitions, {
@@ -136,10 +180,16 @@ class OllamaAgent {
         messages.push(assistantMessage)
 
         if (toolCalls.length === 0) {
-          const reply = assistantMessage.content.trim() || 'Done.'
+          const reply = finalizeReply(
+            assistantMessage.content,
+            content,
+            executedTools
+          )
           this.remember(username, content, reply)
           return { ok: true, message: reply, tools: executedTools }
         }
+
+        const roundResults = new Map()
 
         for (const call of toolCalls) {
           if (executedTools.length >= this.maxToolCalls) {
@@ -161,9 +211,14 @@ class OllamaAgent {
           const input = parseArguments(
             call.function && call.function.arguments
           )
+          const signature = `${name}:${JSON.stringify(input)}`
+          const duplicate = roundResults.has(signature)
           let result
 
-          if (!allowedToolNames.has(name)) {
+          if (duplicate) {
+            result = roundResults.get(signature)
+            this.log(`[llm] skipped duplicate call to ${name}`)
+          } else if (!allowedToolNames.has(name)) {
             result = {
               ok: false,
               skill: name || 'unknown_tool',
@@ -177,7 +232,8 @@ class OllamaAgent {
             result = await this.skillRegistry.execute(name, input, context)
           }
 
-          executedTools.push({ name, input, result })
+          roundResults.set(signature, result)
+          executedTools.push({ name, input, result, duplicate })
 
           if (context.signal && context.signal.aborted) {
             throw context.signal.reason || new Error('Earl request was cancelled.')
@@ -219,3 +275,4 @@ class OllamaAgent {
 
 module.exports = OllamaAgent
 module.exports.toOllamaTools = toOllamaTools
+module.exports.finalizeReply = finalizeReply

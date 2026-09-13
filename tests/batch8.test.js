@@ -7,18 +7,49 @@ const { parseItemRequest } = require('../src/core/parseItemRequest')
 const registryBot = {
   registry: {
     blocksByName: {
-      birch_log: {},
-      oak_log: {},
+      birch_log: { id: 2 },
+      oak_log: { id: 1 },
       crafting_table: {},
       dirt: {}
     },
     itemsByName: {
+      birch_log: {},
+      oak_log: {},
       oak_planks: {},
       iron_sword: {},
       dirt: {}
     }
   }
 }
+
+test('generic logs resolve to a nearby species for gathering', () => {
+  const bot = {
+    ...registryBot,
+    findBlock: () => ({ name: 'birch_log' })
+  }
+
+  assert.deepEqual(
+    parseItemRequest(bot, '4 logs', { kind: 'block' }),
+    { name: 'birch_log', amount: 4, known: true }
+  )
+})
+
+test('generic logs resolve to an available inventory species for storage', () => {
+  const bot = {
+    ...registryBot,
+    inventory: {
+      items: () => [
+        { name: 'oak_log', count: 2 },
+        { name: 'birch_log', count: 6 }
+      ]
+    }
+  }
+
+  assert.equal(
+    parseItemRequest(bot, 'logs 4', { kind: 'item' }).name,
+    'birch_log'
+  )
+})
 
 test('resource requests accept amounts before or after the name', () => {
   assert.deepEqual(

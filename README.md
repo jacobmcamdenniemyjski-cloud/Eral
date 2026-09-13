@@ -104,6 +104,12 @@ memory load on computers without a dedicated GPU. Console logs show the tools
 selected and the time taken by each model round. Qwen is also explicitly run in
 non-thinking mode so its scratch reasoning is not sent into Minecraft chat.
 
+The LLM interface keeps Minecraft mechanics deterministic: `make_item` owns
+recipe planning, storage skills locate containers without entity scans, generic
+resource words such as `logs` resolve to real block/item variants, identical
+tool calls in one round run only once, and verbose reasoning-style output is
+blocked before it reaches game chat.
+
 To try a different installed model for one PowerShell session:
 
 ```powershell
