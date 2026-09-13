@@ -48,280 +48,220 @@ function getBuildOrigin(parts, startIndex = 1) {
   }
 }
 
+/**
+ * @param {import('mineflayer').Bot} bot - The Mineflayer bot instance
+ * @param {import('../path/to/scheduler')} scheduler - The task scheduler instance
+ * @param {import('../path/to/router')} router - The command router instance
+ */
 function registerCommands(bot, scheduler, router) {
   bot.on('stoppedAttacking', () => {
     const currentTask = scheduler.getCurrentTask()
-
     if (currentTask && currentTask.type === 'attack') {
       scheduler.clearTask()
     }
   })
 
-  router.exact('earl inventory', async () => {
-    console.log(getInventory(bot))
-  })
+  // used to invalidate an in-progress queue if "earl stop" fires
+  let queueGeneration = 0
 
-  router.prefix('earl gather', async ({ args }) => {
+  async function handleGather(args, ctx) {
     const parts = args.split(/\s+/)
     const blockName = parts[0]
     const amount = getPositiveInteger(parts[1], 1)
-
-    if (!blockName) {
-      bot.chat('Usage: earl gather <block> <amount>')
-      return
-    }
-
+    if (!blockName) return bot.chat('Usage: gather <block> <amount>')
     await gatherBlock(bot, blockName, amount)
-  })
+  }
 
-  router.prefix('earl craft', async ({ args }) => {
+  async function handleCraft(args, ctx) {
     const parts = args.split(/\s+/)
     const itemName = parts[0]
     const amount = getPositiveInteger(parts[1], 1)
-
-    if (!itemName) {
-      bot.chat('Usage: earl craft <item> <amount>')
-      return
-    }
-
+    if (!itemName) return bot.chat('Usage: craft <item> <amount>')
     await craftItem(bot, itemName, amount)
-  })
+  }
 
-  router.prefix('earl store', async ({ args }) => {
+  async function handleStore(args, ctx) {
     const parts = args.split(/\s+/)
     const itemName = parts[0]
     const amount = getPositiveInteger(parts[1], 1)
-
-    if (!itemName) {
-      bot.chat('Usage: earl store <item> <amount>')
-      return
-    }
-
+    if (!itemName) return bot.chat('Usage: store <item> <amount>')
     await storeItem(bot, itemName, amount)
-  })
+  }
 
-  router.prefix('earl take', async ({ args }) => {
+  async function handleTake(args, ctx) {
     const parts = args.split(/\s+/)
     const itemName = parts[0]
     const amount = getPositiveInteger(parts[1], 1)
-
-    if (!itemName) {
-      bot.chat('Usage: earl take <item> <amount>')
-      return
-    }
-
+    if (!itemName) return bot.chat('Usage: take <item> <amount>')
     await takeItem(bot, itemName, amount)
-  })
+  }
 
-  router.prefix('earl equip', async ({ args }) => {
+  async function handleEquip(args, ctx) {
     const itemName = args.trim()
-
-    if (!itemName) {
-      bot.chat('Usage: earl equip <item>')
-      return
-    }
-
+    if (!itemName) return bot.chat('Usage: equip <item>')
     await equipItem(bot, itemName)
-  })
-
-  router.prefix('earl place', async ({ args }) => {
-  const parts = args.split(/\s+/)
-  const blockName = parts[0]
-
-  if (!blockName) {
-    bot.chat('Usage: earl place <block> [x y z]')
-    return
   }
 
-  const hasCoords = parts.length > 1
-  const position = hasCoords ? getBuildOrigin(parts) : null
-
-  if (hasCoords && !position) {
-    bot.chat('Usage: earl place <block> [x y z]')
-    return
-  }
-
-  try {
-    const result = await placeBlock(bot, blockName, position)
-
-    if (result.skipped) {
-      bot.chat(`${blockName} is already at that position.`)
-    } else {
-      bot.chat(`Placed ${blockName}.`)
-    }
-  } catch (error) {
-    console.error(`Placement failed: ${error.message}`)
-    bot.chat(`I could not place ${blockName}: ${error.message}`)
-  }
-})
-
-  router.prefix('earl build line', async ({ args }) => {
+  async function handlePlace(args, ctx) {
     const parts = args.split(/\s+/)
     const blockName = parts[0]
-    const origin = getBuildOrigin(parts)
+    if (!blockName) return bot.chat('Usage: place <block> [x y z]')
+
+    const hasCoords = parts.length > 1
+    const position = hasCoords ? getBuildOrigin(parts, 1) : null
+    if (hasCoords && !position) return bot.chat('Usage: place <block> [x y z]')
+
+    try {
+      const result = await placeBlock(bot, blockName, position)
+      bot.chat(result.skipped ? `${blockName} is already at that position.` : `Placed ${blockName}.`)
+    } catch (error) {
+      console.error(`Placement failed: ${error.message}`)
+      bot.chat(`I could not place ${blockName}: ${error.message}`)
+    }
+  }
+
+  async function handleBuildLine(args, ctx) {
+    const parts = args.split(/\s+/)
+    const blockName = parts[0]
+    const origin = getBuildOrigin(parts, 1)
     const direction = parts[4] && parts[4].toLowerCase()
     const length = Number(parts[5])
 
     if (!blockName || !origin || !direction || !Number.isInteger(length)) {
-      bot.chat('Usage: earl build line <block> <x> <y> <z> <direction> <length>')
-      return
+      return bot.chat('Usage: build line <block> <x> <y> <z> <direction> <length>')
     }
-
     await buildLine(bot, blockName, origin, direction, length)
-  })
+  }
 
-  router.prefix('earl build wall', async ({ args }) => {
+  async function handleBuildWall(args, ctx) {
     const parts = args.split(/\s+/)
     const blockName = parts[0]
-    const origin = getBuildOrigin(parts)
+    const origin = getBuildOrigin(parts, 1)
     const direction = parts[4] && parts[4].toLowerCase()
     const width = Number(parts[5])
     const height = Number(parts[6])
 
-    if (
-      !blockName ||
-      !origin ||
-      !direction ||
-      !Number.isInteger(width) ||
-      !Number.isInteger(height)
-    ) {
-      bot.chat('Usage: earl build wall <block> <x> <y> <z> <direction> <width> <height>')
-      return
+    if (!blockName || !origin || !direction || !Number.isInteger(width) || !Number.isInteger(height)) {
+      return bot.chat('Usage: build wall <block> <x> <y> <z> <direction> <width> <height>')
     }
+    await buildWall(bot, blockName, origin, direction, width, height)
+  }
 
-    await buildWall(
-      bot,
-      blockName,
-      origin,
-      direction,
-      width,
-      height
-    )
-  })
-
-  router.prefix('earl build floor', async ({ args }) => {
+  async function handleBuildFloor(args, ctx) {
     const parts = args.split(/\s+/)
     const blockName = parts[0]
-    const origin = getBuildOrigin(parts)
+    const origin = getBuildOrigin(parts, 1)
     const width = Number(parts[4])
     const depth = Number(parts[5])
 
-    if (
-      !blockName ||
-      !origin ||
-      !Number.isInteger(width) ||
-      !Number.isInteger(depth)
-    ) {
-      bot.chat('Usage: earl build floor <block> <x> <y> <z> <width> <depth>')
-      return
+    if (!blockName || !origin || !Number.isInteger(width) || !Number.isInteger(depth)) {
+      return bot.chat('Usage: build floor <block> <x> <y> <z> <width> <depth>')
     }
-
     await buildFloor(bot, blockName, origin, width, depth)
-  })
+  }
 
-  router.exact('earl task', async () => {
-    console.log(scheduler.getCurrentTask())
-  })
+  async function handleGoto(args, ctx) {
+    const parts = args.split(/\s+/)
+    const [x, y, z] = parts.map(Number)
+    if (![x, y, z].every(Number.isFinite)) return bot.chat('Usage: goto <x> <y> <z>')
 
-  router.exact('earl follow me', async ({ username }) => {
-    const accepted = scheduler.setTask({
-      type: 'follow',
-      target: username,
-      priority: 200
-    })
+    const accepted = scheduler.setTask({ type: 'goto', x, y, z, priority: 200 })
+    if (accepted) await goTo(bot, x, y, z)
+  }
 
-    if (accepted) {
-      followPlayer(bot, username)
-    }
-  })
-
-  router.prefix('earl find', async ({ args }) => {
-    const blockName = args.trim()
-
-    if (!blockName) {
-      bot.chat('Usage: earl find <block>')
-      return
-    }
-
-    const block = findNearestBlock(bot, blockName)
-
-    if (block) {
-      console.log({ name: block.name, position: block.position })
-    } else {
-      console.log(`No ${blockName} found nearby.`)
-    }
-  })
-
-  router.exact('earl stop', async () => {
-    scheduler.clearTask()
-
-    if (bot.pvp) {
-      bot.pvp.forceStop()
-    }
-
-    stopMovement(bot)
-  })
-
-  router.prefix('earl attack', async ({ args }) => {
+  async function handleAttack(args, ctx) {
     const mobName = args.trim().toLowerCase()
+    if (!mobName) return bot.chat('Usage: attack <hostile_mob>')
 
-    if (!mobName) {
-      bot.chat('Usage: earl attack <hostile mob>')
-      return
-    }
-
-    const accepted = scheduler.setTask({
-      type: 'attack',
-      target: mobName,
-      priority: 300
-    })
-
-    if (!accepted) {
-      bot.chat('I am already handling a higher-priority task.')
-      return
-    }
+    const accepted = scheduler.setTask({ type: 'attack', target: mobName, priority: 300 })
+    if (!accepted) return bot.chat('I am already handling a higher-priority task.')
 
     const target = await attackNearestHostile(bot, mobName)
+    if (!target) scheduler.clearTask()
+  }
 
-    if (!target) {
-      scheduler.clearTask()
+  async function handleFollowMe(args, ctx) {
+    const accepted = scheduler.setTask({ type: 'follow', target: ctx.username, priority: 200 })
+    if (accepted) followPlayer(bot, ctx.username)
+  }
+
+  async function handleLookAtMe(args, ctx) {
+    await lookAtPlayer(bot, ctx.username)
+  }
+
+  async function handleFind(args) {
+    const blockName = args.trim()
+    if (!blockName) return bot.chat('Usage: find <block>')
+    const block = findNearestBlock(bot, blockName)
+    console.log(block ? { name: block.name, position: block.position } : `No ${blockName} found nearby.`)
+  }
+
+  async function handleStop() {
+    queueGeneration++ // invalidate any queue currently running
+    scheduler.clearTask()
+    if (bot.pvp) bot.pvp.forceStop()
+    stopMovement(bot)
+  }
+
+  async function handleStatus() { console.log(getStatus(bot)) }
+  async function handleScan() { console.log(getNearbyEntities(bot)) }
+  async function handleInventory() { console.log(getInventory(bot)) }
+  async function handleTask() { console.log(scheduler.getCurrentTask()) }
+
+  const verbTable = [
+    ['build line', handleBuildLine],
+    ['build wall', handleBuildWall],
+    ['build floor', handleBuildFloor],
+    ['follow me', handleFollowMe],
+    ['look at me', handleLookAtMe],
+    ['gather', handleGather],
+    ['craft', handleCraft],
+    ['store', handleStore],
+    ['take', handleTake],
+    ['equip', handleEquip],
+    ['place', handlePlace],
+    ['goto', handleGoto],
+    ['attack', handleAttack],
+    ['stop', handleStop],
+    ['find', handleFind],
+    ['status', handleStatus],
+    ['scan', handleScan],
+    ['inventory', handleInventory],
+    ['task', handleTask]
+  ]
+
+  function matchVerb(segment) {
+    for (const [verb, handler] of verbTable) {
+      if (segment === verb || segment.startsWith(verb + ' ')) {
+        return { handler, args: segment.slice(verb.length).trim() }
+      }
     }
-  })
+    return null
+  }
 
-  router.exact('earl look at me', async ({ username }) => {
-    await lookAtPlayer(bot, username)
-  })
+  async function runQueue(fullText, ctx) {
+    queueGeneration += 1
+    const myGeneration = queueGeneration
+    const segments = fullText.split(/\s+then\s+/i).map(s => s.trim()).filter(Boolean)
 
-  router.exact('earl status', async () => {
-    console.log(getStatus(bot))
-  })
+    for (const segment of segments) {
+      if (queueGeneration !== myGeneration) {
+        bot.chat('Queue cancelled.')
+        return
+      }
 
-  router.exact('earl scan', async () => {
-    console.log(getNearbyEntities(bot))
-  })
+      const match = matchVerb(segment)
+      if (!match) {
+        bot.chat(`I don't know how to "${segment}", skipping.`)
+        continue
+      }
 
-  router.prefix('earl goto', async ({ args }) => {
-    const parts = args.split(/\s+/)
-    const x = Number(parts[0])
-    const y = Number(parts[1])
-    const z = Number(parts[2])
-
-    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) {
-      bot.chat('Usage: earl goto <x> <y> <z>')
-      return
+      await match.handler(match.args, ctx)
     }
+  }
 
-    const accepted = scheduler.setTask({
-      type: 'goto',
-      x,
-      y,
-      z,
-      priority: 200
-    })
-
-    if (accepted) {
-      goTo(bot, x, y, z)
-    }
+  router.prefix('earl', async ({ args, username }) => {
+    await runQueue(args.trim(), { username })
   })
 }
 
