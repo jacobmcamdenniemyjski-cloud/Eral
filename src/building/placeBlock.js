@@ -1,5 +1,7 @@
+/** @typedef {import('mineflayer').Bot} Bot */
+
 const { goals } = require('mineflayer-pathfinder')
-const { isPositionClear, isPositionClearOfEntities } = require('../perception/isPositionClear')
+const { isPositionClearOfEntities } = require('../perception/isPositionClear')
 
 const SUPPORT_OFFSETS = [
   [0, -1, 0],
@@ -10,6 +12,10 @@ const SUPPORT_OFFSETS = [
   [0, 1, 0]
 ]
 
+/**
+ * @param {Bot} bot
+ * @param {import('vec3').Vec3} position
+ */
 function toBlockPosition(bot, position) {
   const origin = bot.entity.position.floored()
 
@@ -20,6 +26,10 @@ function toBlockPosition(bot, position) {
   )
 }
 
+/**
+ * @param {Bot} bot
+ * @param {string} itemName
+ */
 function getInventoryCount(bot, itemName) {
   return bot.inventory.items()
     .filter((item) => item.name === itemName)
@@ -30,6 +40,10 @@ function isReplaceable(block) {
   return block && block.boundingBox === 'empty'
 }
 
+/**
+ * @param {Bot} bot
+ * @param {import('vec3').Vec3} target
+ */
 function findSupportBlock(bot, target) {
   for (const [x, y, z] of SUPPORT_OFFSETS) {
     const block = bot.blockAt(target.offset(x, y, z))
@@ -42,6 +56,10 @@ function findSupportBlock(bot, target) {
   return null
 }
 
+/**
+ * @param {Bot} bot
+ * @param {number} radius
+ */
 function findPlaceablePosition(bot, radius = 4) {
   const origin = bot.entity.position.floored()
   const offsets = []
@@ -72,6 +90,11 @@ function findPlaceablePosition(bot, radius = 4) {
   return null
 }
 
+/**
+ * @param {Bot} bot
+ * @param {string} blockName
+ * @param {import('vec3').Vec3} [position=null]
+ */
 async function placeBlock(bot, blockName, position = null) {
   const pos = position || findPlaceablePosition(bot)
 
@@ -82,6 +105,11 @@ async function placeBlock(bot, blockName, position = null) {
   return placeBlockAt(bot, blockName, pos)
 }
 
+/**
+ * @param {Bot} bot
+ * @param {string} blockName
+ * @param {import('vec3').Vec3} position
+ */
 async function placeBlockAt(bot, blockName, position) {
   const blockType = bot.registry.blocksByName[blockName]
   const itemType = bot.registry.itemsByName[blockName]
@@ -144,6 +172,12 @@ async function placeBlockAt(bot, blockName, position) {
   return { placed: true, skipped: false }
 }
 
+/**
+ * @param {Bot} bot
+ * @param {string} blockName
+ * @param {import('vec3').Vec3[]} positions
+ * @param {string} label
+ */
 async function buildBlocks(bot, blockName, positions, label) {
   if (
     !bot.registry.blocksByName[blockName] ||
