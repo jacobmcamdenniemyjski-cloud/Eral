@@ -14,6 +14,10 @@ const attackNearestHostile = require('../combat/attackNearestHostile')
 const storeItem = require('../inventory/storeItem')
 const takeItem = require('../inventory/takeItem')
 const equipItem = require('../inventory/equipItem')
+const { placeBlock } = require('../building/placeBlock')
+const buildLine = require('../building/buildLine')
+const buildWall = require('../building/buildWall')
+const buildFloor = require('../building/buildFloor')
 
 function getPositiveInteger(value, fallback = 1) {
   const number = Number(value)
@@ -23,6 +27,25 @@ function getPositiveInteger(value, fallback = 1) {
   }
 
   return number
+}
+
+function getBuildOrigin(parts, startIndex = 1) {
+  const coordinates = parts
+    .slice(startIndex, startIndex + 3)
+    .map(Number)
+
+  if (
+    coordinates.length !== 3 ||
+    !coordinates.every(Number.isInteger)
+  ) {
+    return null
+  }
+
+  return {
+    x: coordinates[0],
+    y: coordinates[1],
+    z: coordinates[2]
+  }
 }
 
 function registerCommands(bot, scheduler, router) {
@@ -99,6 +122,94 @@ function registerCommands(bot, scheduler, router) {
     }
 
     await equipItem(bot, itemName)
+  })
+
+  router.prefix('earl place', async ({ args }) => {
+    const parts = args.split(/\s+/)
+    const blockName = parts[0]
+    const position = getBuildOrigin(parts)
+
+    if (!blockName || !position) {
+      bot.chat('Usage: earl place <block> <x> <y> <z>')
+      return
+    }
+
+    try {
+      const result = await placeBlock(bot, blockName, position)
+
+      if (result.skipped) {
+        bot.chat(`${blockName} is already at that position.`)
+      } else {
+        bot.chat(`Placed ${blockName}.`)
+      }
+    } catch (error) {
+      console.error(`Placement failed: ${error.message}`)
+      bot.chat(`I could not place ${blockName}: ${error.message}`)
+    }
+  })
+
+  router.prefix('earl build line', async ({ args }) => {
+    const parts = args.split(/\s+/)
+    const blockName = parts[0]
+    const origin = getBuildOrigin(parts)
+    const direction = parts[4] && parts[4].toLowerCase()
+    const length = Number(parts[5])
+
+    if (!blockName || !origin || !direction || !Number.isInteger(length)) {
+      bot.chat('Usage: earl build line <block> <x> <y> <z> <direction> <length>')
+      return
+    }
+
+    await buildLine(bot, blockName, origin, direction, length)
+  })
+
+  router.prefix('earl build wall', async ({ args }) => {
+    const parts = args.split(/\s+/)
+    const blockName = parts[0]
+    const origin = getBuildOrigin(parts)
+    const direction = parts[4] && parts[4].toLowerCase()
+    const width = Number(parts[5])
+    const height = Number(parts[6])
+
+    if (
+      !blockName ||
+      !origin ||
+      !direction ||
+      !Number.isInteger(width) ||
+      !Number.isInteger(height)
+    ) {
+      bot.chat('Usage: earl build wall <block> <x> <y> <z> <direction> <width> <height>')
+      return
+    }
+
+    await buildWall(
+      bot,
+      blockName,
+      origin,
+      direction,
+      width,
+      height
+    )
+  })
+
+  router.prefix('earl build floor', async ({ args }) => {
+    const parts = args.split(/\s+/)
+    const blockName = parts[0]
+    const origin = getBuildOrigin(parts)
+    const width = Number(parts[4])
+    const depth = Number(parts[5])
+
+    if (
+      !blockName ||
+      !origin ||
+      !Number.isInteger(width) ||
+      !Number.isInteger(depth)
+    ) {
+      bot.chat('Usage: earl build floor <block> <x> <y> <z> <width> <depth>')
+      return
+    }
+
+    await buildFloor(bot, blockName, origin, width, depth)
   })
 
   router.exact('earl task', async () => {
