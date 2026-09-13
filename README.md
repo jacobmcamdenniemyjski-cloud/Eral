@@ -39,6 +39,32 @@ AI / Goals → Deterministic Skills → Mineflayer → Minecraft
 - `earl build line <block> <x> <y> <z> <direction> <length>` — Builds a line.
 - `earl build wall <block> <x> <y> <z> <direction> <width> <height>` — Builds a wall.
 - `earl build floor <block> <x> <y> <z> <width> <depth>` — Builds a floor.
+- `earl skills` — Lists Earl's structured skills in the console.
+
+## Structured skill registry
+
+Earl's chat commands and future AI planner share the same 22 deterministic
+skills. Each skill has a stable name, description, JSON input schema, timeout,
+and safety category. Inputs are validated with Ajv before Minecraft code runs,
+and every execution returns a structured success or error result.
+
+The registry is available at `bot.earl.skillRegistry`. A future model provider
+can read `getToolDefinitions()` and request a skill by name; the model will not
+generate or execute arbitrary JavaScript. Existing Mineflayer capabilities
+remain the implementation underneath the registry.
+
+Example internal call:
+
+```js
+const result = await bot.earl.skillRegistry.execute(
+  'gather_block',
+  { block: 'oak_log', amount: 8 },
+  { cancelActiveWork }
+)
+```
+
+Batch 10 adds the safe skill boundary only. It does not send chat to an LLM or
+require an AI API key yet.
 
 ## Command queues
 
