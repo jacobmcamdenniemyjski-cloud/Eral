@@ -61,11 +61,7 @@ function registerCommands(bot, scheduler, router) {
       return
     }
 
-    const success = await craftItem(bot, itemName, amount)
-
-    if (!success) {
-      bot.chat(`I could not craft ${itemName}.`)
-    }
+    await craftItem(bot, itemName, amount)
   })
 
   router.prefix('earl store', async ({ args }) => {
