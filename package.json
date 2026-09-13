@@ -1,16 +1,17 @@
 {
   "name": "earl0.1",
   "version": "0.0.1",
-  "description": "earl npc",
+  "description": "Earl autonomous Minecraft NPC",
   "license": "ISC",
   "author": "Niemyjski",
   "type": "commonjs",
-  "main": "earl.js",
+  "main": "src/index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node src/index.js",
+    "test": "echo \"No automated tests yet\""
   },
   "dependencies": {
-    "mindflayer": "^0.1.0-alpha.1",
+    "mineflayer": "^4.39.0",
     "mineflayer-collectblock": "^1.6.0",
     "mineflayer-pathfinder": "^2.4.5"
   }
