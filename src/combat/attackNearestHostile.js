@@ -14,7 +14,11 @@ async function attackNearestHostile(
   maxDistance = 16,
   options = {}
 ) {
-  const { signal } = options
+  const {
+    signal,
+    target: requestedTarget = null,
+    announce = true
+  } = options
   const normalizedName = mobName
     .toLowerCase()
     .replace(/^minecraft:/, '')
@@ -24,8 +28,7 @@ async function attackNearestHostile(
     return null
   }
 
-  const target = Object.values(bot.entities)
-    .filter((entity) => {
+  const isValidTarget = (entity) => {
       if (
         !entity.position ||
         entity === bot.entity ||
@@ -37,12 +40,17 @@ async function attackNearestHostile(
       if (entity.name !== normalizedName) return false
 
       return bot.entity.position.distanceTo(entity.position) <= maxDistance
-    })
-    .sort((a, b) => {
-      const distanceA = bot.entity.position.distanceTo(a.position)
-      const distanceB = bot.entity.position.distanceTo(b.position)
-      return distanceA - distanceB
-    })[0]
+  }
+
+  const target = requestedTarget && isValidTarget(requestedTarget)
+    ? requestedTarget
+    : Object.values(bot.entities)
+      .filter(isValidTarget)
+      .sort((a, b) => {
+        const distanceA = bot.entity.position.distanceTo(a.position)
+        const distanceB = bot.entity.position.distanceTo(b.position)
+        return distanceA - distanceB
+      })[0]
 
   if (!target) {
     bot.chat(`I cannot find a ${normalizedName} within ${maxDistance} blocks.`)
@@ -95,8 +103,10 @@ async function attackNearestHostile(
     throw error
   }
 
-  console.log(`Earl is attacking the nearest ${normalizedName}.`)
-  bot.chat(`Attacking the nearest ${normalizedName}.`)
+  if (announce) {
+    console.log(`Earl is attacking the nearest ${normalizedName}.`)
+    bot.chat(`Attacking the nearest ${normalizedName}.`)
+  }
 
   await fightFinished
 
@@ -112,3 +122,4 @@ async function attackNearestHostile(
 }
 
 module.exports = attackNearestHostile
+module.exports.HOSTILE_MOBS = HOSTILE_MOBS

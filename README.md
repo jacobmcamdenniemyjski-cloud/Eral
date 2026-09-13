@@ -31,6 +31,8 @@ AI / Goals → Deterministic Skills → Mineflayer → Minecraft
 - `earl take <item> <amount>` — Withdraws items from a nearby container.
 - `earl equip <item>` — Equips or holds an item.
 - `earl attack <hostile>` — Attacks the nearest specified hostile mob.
+- `earl combat <mode>` — Sets automatic combat to `passive`, `defensive`, `guard`, or `aggressive`.
+- `earl combat status` — Shows the automatic combat mode and protected player.
 - `earl task` — Shows Earl's current task in the console.
 - `earl place <block> [x y z]` — Places a block, optionally at exact coordinates.
 - `earl build line <block> <x> <y> <z> <direction> <length>` — Builds a line.
@@ -52,6 +54,17 @@ earl goto 273 64 368 then gather stone 4 then goto 236 64 381 then store cobbles
 ```
 
 Repeating queues pause between iterations so chat and stop commands remain responsive. If an action times out, Earl cancels the underlying Minecraft work and stops that queue rather than starting conflicting actions.
+
+## Automatic combat
+
+Earl starts in `defensive` mode. He automatically defends himself or the latest player who commanded him, equips his best available sword or axe, and interrupts ordinary work only when a threat is close enough.
+
+- `passive` — Never starts combat automatically.
+- `defensive` — Responds to damage and hostiles within four blocks.
+- `guard` — Protects Earl and his player within eight blocks.
+- `aggressive` — Hunts supported hostile mobs within sixteen blocks.
+
+Earl will not begin reflex combat at eight health or lower. `earl stop` immediately ends combat and suppresses the reflex for ten seconds so it cannot restart at once. Endermen and zombified piglins are ignored unless Earl or his protected player is hurt, except in aggressive mode.
 
 ## Development
 
