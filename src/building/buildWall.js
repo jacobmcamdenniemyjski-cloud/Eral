@@ -13,7 +13,8 @@ async function buildWall(
   origin,
   direction,
   width,
-  height
+  height,
+  options = {}
 ) {
   const offset = HORIZONTAL_DIRECTIONS[direction]
 
@@ -50,7 +51,8 @@ async function buildWall(
     bot,
     blockName,
     positions,
-    `${width}x${height} wall`
+    `${width}x${height} wall`,
+    options
   )
 }
 

@@ -18,17 +18,24 @@ const { placeBlock } = require('../building/placeBlock')
 const buildLine = require('../building/buildLine')
 const buildWall = require('../building/buildWall')
 const buildFloor = require('../building/buildFloor')
+const CommandQueue = require('../scheduler/CommandQueue')
 
-const withTimeout = require('../scheduler/withTimeout')
+const TIMEOUTS = {
+  quick: 30000,
+  place: 60000,
+  inventoryAction: 120000,
+  craft: 120000,
+  attack: 120000,
+  line: 180000,
+  wall: 300000,
+  floor: 600000,
+  gather: 600000,
+  goto: 600000
+}
 
 function getPositiveInteger(value, fallback = 1) {
   const number = Number(value)
-
-  if (!Number.isInteger(number) || number <= 0) {
-    return fallback
-  }
-
-  return number
+  return Number.isInteger(number) && number > 0 ? number : fallback
 }
 
 function getBuildOrigin(parts, startIndex = 1) {
@@ -50,83 +57,173 @@ function getBuildOrigin(parts, startIndex = 1) {
   }
 }
 
-/**
- * @param {import('mineflayer').Bot} bot
- * @param {import('../path/to/scheduler')} scheduler
- * @param {import('../path/to/router')} router
- */
 function registerCommands(bot, scheduler, router) {
   bot.on('stoppedAttacking', () => {
     const currentTask = scheduler.getCurrentTask()
+
     if (currentTask && currentTask.type === 'attack') {
       scheduler.clearTask()
     }
   })
 
-  // used to invalidate an in-progress queue if "earl stop" fires
-  let queueGeneration = 0
+  async function cancelActiveWork() {
+    if (
+      bot.collectBlock &&
+      typeof bot.collectBlock.cancelTask === 'function'
+    ) {
+      try {
+        await Promise.race([
+          Promise.resolve(bot.collectBlock.cancelTask()),
+          new Promise((resolve) => setTimeout(resolve, 1000))
+        ])
+      } catch (error) {
+        console.error(`Collect cancellation failed: ${error.message}`)
+      }
+    }
 
-  const STEP_TIMEOUT_MS = 15000
-  const GOTO_TIMEOUT_MS = 3600000 // 1 hour; if Earl is traveling longer than that... why?
-  const ARRIVAL_TOLERANCE = 2 // blocks; how close counts as "arrived"
+    if (bot.pvp && typeof bot.pvp.forceStop === 'function') {
+      try {
+        bot.pvp.forceStop()
+      } catch (error) {
+        console.error(`Combat cancellation failed: ${error.message}`)
+      }
+    }
 
-  async function handleGather(args, ctx) {
+    if (bot.pathfinder) {
+      try {
+        bot.pathfinder.setGoal(null)
+      } catch (error) {
+        console.error(`Movement cancellation failed: ${error.message}`)
+      }
+    }
+
+    if (typeof bot.clearControlStates === 'function') {
+      bot.clearControlStates()
+    }
+
+    if (bot.currentWindow && typeof bot.closeWindow === 'function') {
+      try {
+        await bot.closeWindow(bot.currentWindow)
+      } catch (error) {
+        console.error(`Window cancellation failed: ${error.message}`)
+      }
+    }
+
+    scheduler.clearTask()
+    await new Promise((resolve) => setImmediate(resolve))
+  }
+
+  const commandQueue = new CommandQueue({
+    cancelActiveWork,
+    repeatDelayMs: 1000,
+    maxSegments: 20,
+    notify: (message) => bot.chat(message),
+    onStart: (label) => console.log(`[queue] starting: ${label}`),
+    onFinish: (label) => console.log(`[queue] finished: ${label}`),
+    onError: (label, error, timedOut) => {
+      console.error(`[queue] step failed: "${label}" — ${error.message}`)
+
+      if (timedOut) {
+        bot.chat(`"${label}" took too long and was safely stopped.`)
+      } else {
+        bot.chat(`Couldn't finish "${label}": ${error.message}. Moving on.`)
+      }
+    }
+  })
+
+  function clearTaskIf(type, predicate = () => true) {
+    const currentTask = scheduler.getCurrentTask()
+
+    if (currentTask && currentTask.type === type && predicate(currentTask)) {
+      scheduler.clearTask()
+    }
+  }
+
+  async function handleGather(args, context) {
     const parts = args.split(/\s+/)
     const blockName = parts[0]
     const amount = getPositiveInteger(parts[1], 1)
+
     if (!blockName) return bot.chat('Usage: gather <block> <amount>')
-    await gatherBlock(bot, blockName, amount)
+    if (amount > 64) return bot.chat('Gather at most 64 blocks per command.')
+
+    await gatherBlock(bot, blockName, amount, {
+      signal: context.signal
+    })
   }
 
-  async function handleCraft(args, ctx) {
+  async function handleCraft(args, context) {
     const parts = args.split(/\s+/)
     const itemName = parts[0]
     const amount = getPositiveInteger(parts[1], 1)
+
     if (!itemName) return bot.chat('Usage: craft <item> <amount>')
+    if (context.signal.aborted) throw context.signal.reason
+
     await craftItem(bot, itemName, amount)
   }
 
-  async function handleStore(args, ctx) {
+  async function handleStore(args, context) {
     const parts = args.split(/\s+/)
     const itemName = parts[0]
     const amount = getPositiveInteger(parts[1], 1)
+
     if (!itemName) return bot.chat('Usage: store <item> <amount>')
+    if (context.signal.aborted) throw context.signal.reason
+
     await storeItem(bot, itemName, amount)
   }
 
-  async function handleTake(args, ctx) {
+  async function handleTake(args, context) {
     const parts = args.split(/\s+/)
     const itemName = parts[0]
     const amount = getPositiveInteger(parts[1], 1)
+
     if (!itemName) return bot.chat('Usage: take <item> <amount>')
+    if (context.signal.aborted) throw context.signal.reason
+
     await takeItem(bot, itemName, amount)
   }
 
-  async function handleEquip(args, ctx) {
+  async function handleEquip(args, context) {
     const itemName = args.trim()
     if (!itemName) return bot.chat('Usage: equip <item>')
+    if (context.signal.aborted) throw context.signal.reason
+
     await equipItem(bot, itemName)
   }
 
-  async function handlePlace(args, ctx) {
+  async function handlePlace(args, context) {
     const parts = args.split(/\s+/)
     const blockName = parts[0]
     if (!blockName) return bot.chat('Usage: place <block> [x y z]')
 
-    const hasCoords = parts.length > 1
-    const position = hasCoords ? getBuildOrigin(parts, 1) : null
-    if (hasCoords && !position) return bot.chat('Usage: place <block> [x y z]')
+    const hasCoordinates = parts.length > 1
+    const position = hasCoordinates ? getBuildOrigin(parts, 1) : null
+
+    if (hasCoordinates && !position) {
+      return bot.chat('Usage: place <block> [x y z]')
+    }
 
     try {
-      const result = await placeBlock(bot, blockName, position)
-      bot.chat(result.skipped ? `${blockName} is already at that position.` : `Placed ${blockName}.`)
+      const result = await placeBlock(bot, blockName, position, {
+        signal: context.signal
+      })
+
+      bot.chat(
+        result.skipped
+          ? `${blockName} is already at that position.`
+          : `Placed ${blockName}.`
+      )
     } catch (error) {
+      if (context.signal.aborted) throw error
+
       console.error(`Placement failed: ${error.message}`)
       bot.chat(`I could not place ${blockName}: ${error.message}`)
     }
   }
 
-  async function handleBuildLine(args, ctx) {
+  async function handleBuildLine(args, context) {
     const parts = args.split(/\s+/)
     const blockName = parts[0]
     const origin = getBuildOrigin(parts, 1)
@@ -134,12 +231,17 @@ function registerCommands(bot, scheduler, router) {
     const length = Number(parts[5])
 
     if (!blockName || !origin || !direction || !Number.isInteger(length)) {
-      return bot.chat('Usage: build line <block> <x> <y> <z> <direction> <length>')
+      return bot.chat(
+        'Usage: build line <block> <x> <y> <z> <direction> <length>'
+      )
     }
-    await buildLine(bot, blockName, origin, direction, length)
+
+    await buildLine(bot, blockName, origin, direction, length, {
+      signal: context.signal
+    })
   }
 
-  async function handleBuildWall(args, ctx) {
+  async function handleBuildWall(args, context) {
     const parts = args.split(/\s+/)
     const blockName = parts[0]
     const origin = getBuildOrigin(parts, 1)
@@ -147,79 +249,142 @@ function registerCommands(bot, scheduler, router) {
     const width = Number(parts[5])
     const height = Number(parts[6])
 
-    if (!blockName || !origin || !direction || !Number.isInteger(width) || !Number.isInteger(height)) {
-      return bot.chat('Usage: build wall <block> <x> <y> <z> <direction> <width> <height>')
+    if (
+      !blockName ||
+      !origin ||
+      !direction ||
+      !Number.isInteger(width) ||
+      !Number.isInteger(height)
+    ) {
+      return bot.chat(
+        'Usage: build wall <block> <x> <y> <z> <direction> <width> <height>'
+      )
     }
-    await buildWall(bot, blockName, origin, direction, width, height)
+
+    await buildWall(
+      bot,
+      blockName,
+      origin,
+      direction,
+      width,
+      height,
+      { signal: context.signal }
+    )
   }
 
-  async function handleBuildFloor(args, ctx) {
+  async function handleBuildFloor(args, context) {
     const parts = args.split(/\s+/)
     const blockName = parts[0]
     const origin = getBuildOrigin(parts, 1)
     const width = Number(parts[4])
     const depth = Number(parts[5])
 
-    if (!blockName || !origin || !Number.isInteger(width) || !Number.isInteger(depth)) {
-      return bot.chat('Usage: build floor <block> <x> <y> <z> <width> <depth>')
+    if (
+      !blockName ||
+      !origin ||
+      !Number.isInteger(width) ||
+      !Number.isInteger(depth)
+    ) {
+      return bot.chat(
+        'Usage: build floor <block> <x> <y> <z> <width> <depth>'
+      )
     }
-    await buildFloor(bot, blockName, origin, width, depth)
+
+    await buildFloor(bot, blockName, origin, width, depth, {
+      signal: context.signal
+    })
   }
 
-  async function handleGoto(args, ctx) {
+  async function handleGoto(args, context) {
     const parts = args.split(/\s+/)
-    const [x, y, z] = parts.map(Number)
-    if (![x, y, z].every(Number.isFinite)) return bot.chat('Usage: goto <x> <y> <z>')
+    const coordinates = parts.map(Number)
 
-    const accepted = scheduler.setTask({ type: 'goto', x, y, z, priority: 200 })
-    if (!accepted) return
+    if (
+      coordinates.length !== 3 ||
+      !coordinates.every(Number.isFinite)
+    ) {
+      return bot.chat('Usage: goto <x> <y> <z>')
+    }
 
-    await withTimeout(goTo(bot, x, y, z), GOTO_TIMEOUT_MS, 'goto')
+    const [x, y, z] = coordinates
+    const accepted = scheduler.setTask({
+      type: 'goto',
+      x,
+      y,
+      z,
+      priority: 200
+    })
 
-    const distance = bot.entity.position.distanceTo({ x, y, z })
-    if (distance > ARRIVAL_TOLERANCE) {
-      throw new Error(`did not reach (${x}, ${y}, ${z}) — still ${distance.toFixed(1)} blocks away`)
+    if (!accepted) {
+      return bot.chat('I am already handling a higher-priority task.')
+    }
+
+    try {
+      await goTo(bot, x, y, z, {
+        tolerance: 2,
+        signal: context.signal
+      })
+    } finally {
+      clearTaskIf('goto', (task) => (
+        task.x === x && task.y === y && task.z === z
+      ))
     }
   }
 
-  async function handleAttack(args, ctx) {
+  async function handleAttack(args, context) {
     const mobName = args.trim().toLowerCase()
     if (!mobName) return bot.chat('Usage: attack <hostile_mob>')
 
-    const accepted = scheduler.setTask({ type: 'attack', target: mobName, priority: 300 })
-    if (!accepted) return bot.chat('I am already handling a higher-priority task.')
+    const accepted = scheduler.setTask({
+      type: 'attack',
+      target: mobName,
+      priority: 300
+    })
+
+    if (!accepted) {
+      return bot.chat('I am already handling a higher-priority task.')
+    }
 
     try {
-      await attackNearestHostile(bot, mobName)
+      await attackNearestHostile(
+        bot,
+        mobName,
+        16,
+        { signal: context.signal }
+      )
     } finally {
-      const currentTask = scheduler.getCurrentTask()
-      if (currentTask && currentTask.type === 'attack' && currentTask.target === mobName) {
-        scheduler.clearTask()
-      }
+      clearTaskIf('attack', (task) => task.target === mobName)
     }
   }
 
-  async function handleFollowMe(args, ctx) {
-    const accepted = scheduler.setTask({ type: 'follow', target: ctx.username, priority: 200 })
-    if (accepted) await followPlayer(bot, ctx.username)
+  async function handleFollowMe(args, context) {
+    const accepted = scheduler.setTask({
+      type: 'follow',
+      target: context.username,
+      priority: 200
+    })
+
+    if (accepted) await followPlayer(bot, context.username)
   }
 
-  async function handleLookAtMe(args, ctx) {
-    await lookAtPlayer(bot, ctx.username)
+  async function handleLookAtMe(args, context) {
+    await lookAtPlayer(bot, context.username)
+  }
+
+  async function handleStop(args, context) {
+    await context.stopQueue()
   }
 
   async function handleFind(args) {
     const blockName = args.trim()
     if (!blockName) return bot.chat('Usage: find <block>')
-    const block = findNearestBlock(bot, blockName)
-    console.log(block ? { name: block.name, position: block.position } : `No ${blockName} found nearby.`)
-  }
 
-  async function handleStop() {
-    queueGeneration++ // invalidate any queue currently running
-    scheduler.clearTask()
-    if (bot.pvp) bot.pvp.forceStop()
-    stopMovement(bot)
+    const block = findNearestBlock(bot, blockName)
+    console.log(
+      block
+        ? { name: block.name, position: block.position }
+        : `No ${blockName} found nearby.`
+    )
   }
 
   async function handleStatus() { console.log(getStatus(bot)) }
@@ -227,95 +392,81 @@ function registerCommands(bot, scheduler, router) {
   async function handleInventory() { console.log(getInventory(bot)) }
   async function handleTask() { console.log(scheduler.getCurrentTask()) }
 
-  const verbTable = [
-    ['build line', handleBuildLine],
-    ['build wall', handleBuildWall],
-    ['build floor', handleBuildFloor],
-    ['follow me', handleFollowMe],
-    ['look at me', handleLookAtMe],
-    ['gather', handleGather],
-    ['craft', handleCraft],
-    ['store', handleStore],
-    ['take', handleTake],
-    ['equip', handleEquip],
-    ['place', handlePlace],
-    ['goto', handleGoto],
-    ['attack', handleAttack],
-    ['stop', handleStop],
-    ['find', handleFind],
-    ['status', handleStatus],
-    ['scan', handleScan],
-    ['inventory', handleInventory],
-    ['task', handleTask]
+  const verbs = [
+    { verb: 'build line', handler: handleBuildLine, timeoutMs: TIMEOUTS.line },
+    { verb: 'build wall', handler: handleBuildWall, timeoutMs: TIMEOUTS.wall },
+    { verb: 'build floor', handler: handleBuildFloor, timeoutMs: TIMEOUTS.floor },
+    { verb: 'follow me', handler: handleFollowMe, timeoutMs: TIMEOUTS.quick },
+    { verb: 'look at me', handler: handleLookAtMe, timeoutMs: TIMEOUTS.quick },
+    { verb: 'gather', handler: handleGather, timeoutMs: TIMEOUTS.gather },
+    { verb: 'craft', handler: handleCraft, timeoutMs: TIMEOUTS.craft },
+    { verb: 'store', handler: handleStore, timeoutMs: TIMEOUTS.inventoryAction },
+    { verb: 'take', handler: handleTake, timeoutMs: TIMEOUTS.inventoryAction },
+    { verb: 'equip', handler: handleEquip, timeoutMs: TIMEOUTS.quick },
+    { verb: 'place', handler: handlePlace, timeoutMs: TIMEOUTS.place },
+    { verb: 'goto', handler: handleGoto, timeoutMs: TIMEOUTS.goto },
+    { verb: 'attack', handler: handleAttack, timeoutMs: TIMEOUTS.attack },
+    { verb: 'stop', handler: handleStop, timeoutMs: TIMEOUTS.quick },
+    { verb: 'find', handler: handleFind, timeoutMs: TIMEOUTS.quick, passive: true },
+    { verb: 'status', handler: handleStatus, timeoutMs: TIMEOUTS.quick, passive: true },
+    { verb: 'scan', handler: handleScan, timeoutMs: TIMEOUTS.quick, passive: true },
+    { verb: 'inventory', handler: handleInventory, timeoutMs: TIMEOUTS.quick, passive: true },
+    { verb: 'task', handler: handleTask, timeoutMs: TIMEOUTS.quick, passive: true }
   ]
 
   function matchVerb(segment) {
-    for (const [verb, handler] of verbTable) {
-      if (segment === verb || segment.startsWith(verb + ' ')) {
-        return { handler, args: segment.slice(verb.length).trim() }
+    const lower = segment.toLowerCase()
+
+    for (const entry of verbs) {
+      if (lower === entry.verb || lower.startsWith(`${entry.verb} `)) {
+        return {
+          ...entry,
+          args: segment.slice(entry.verb.length).trim()
+        }
       }
     }
+
     return null
   }
 
-  async function runQueue(fullText, ctx) {
-    queueGeneration += 1
-    const myGeneration = queueGeneration
-
-    const rawSegments = fullText.split(/\s+then\s+/i).map(s => s.trim()).filter(Boolean)
-    if (rawSegments.length === 0) {
-      bot.chat("yo")
-      return
-    }
-
-    let repeatForever = false
-    let segments = rawSegments
-
-    if (rawSegments[rawSegments.length - 1].toLowerCase() === 'repeat') {
-      repeatForever = true
-      segments = rawSegments.slice(0, -1)
-    }
-
-    if (segments.length === 0) {
-      bot.chat('Nothing to repeat.')
-      return
-    }
-
-    let iteration = 0
-
-    do {
-      iteration += 1
-      if (repeatForever) console.log(`[queue] starting iteration ${iteration}`)
-
-      for (const segment of segments) {
-        if (queueGeneration !== myGeneration) {
-          bot.chat('Queue cancelled.')
-          return
-        }
-
-        const match = matchVerb(segment)
-        if (!match) {
-          bot.chat(`I don't know how to "${segment}", skipping.`)
-          continue
-        }
-
-        const timeoutMs = match.handler === handleGoto ? GOTO_TIMEOUT_MS : STEP_TIMEOUT_MS
-
-        console.log(`[queue] starting: ${segment}`)
-
-        try {
-          await withTimeout(match.handler(match.args, ctx), timeoutMs, segment)
-          console.log(`[queue] finished: ${segment}`)
-        } catch (error) {
-          console.error(`[queue] step failed: "${segment}" — ${error.message}`)
-          bot.chat(`Couldn't finish "${segment}": ${error.message}. Moving on.`)
-        }
-      }
-    } while (repeatForever && queueGeneration === myGeneration)
-  }
-
   router.prefix('earl', async ({ args, username }) => {
-    await runQueue(args.trim(), { username })
+    const text = args.trim()
+    const singleMatch = !/\s+then\s+|(?:^|\s)repeat\s*$/i.test(text)
+      ? matchVerb(text)
+      : null
+
+    if (singleMatch && singleMatch.verb === 'stop') {
+      await commandQueue.stop('stopped by player')
+      stopMovement(bot)
+      bot.chat('Stopped.')
+      return
+    }
+
+    if (singleMatch && singleMatch.passive) {
+      await singleMatch.handler(singleMatch.args, {
+        username,
+        signal: new AbortController().signal
+      })
+      return
+    }
+
+    if (
+      !singleMatch &&
+      text &&
+      !/\s+then\s+|(?:^|\s)repeat\s*$/i.test(text)
+    ) {
+      bot.chat(`I don't know how to "${text}".`)
+      return
+    }
+
+    await commandQueue.run(
+      text,
+      {
+        username,
+        stopQueue: () => commandQueue.stop('stopped by queue command')
+      },
+      matchVerb
+    )
   })
 }
 

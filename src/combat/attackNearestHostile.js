@@ -1,47 +1,20 @@
 const HOSTILE_MOBS = new Set([
-  'blaze',
-  'bogged',
-  'breeze',
-  'cave_spider',
-  'creeper',
-  'drowned',
-  'elder_guardian',
-  'enderman',
-  'endermite',
-  'evoker',
-  'ghast',
-  'guardian',
-  'hoglin',
-  'husk',
-  'magma_cube',
-  'phantom',
-  'piglin_brute',
-  'pillager',
-  'ravager',
-  'shulker',
-  'silverfish',
-  'skeleton',
-  'slime',
-  'spider',
-  'stray',
-  'vex',
-  'vindicator',
-  'warden',
-  'witch',
-  'wither',
-  'wither_skeleton',
-  'zoglin',
-  'zombie',
-  'zombie_villager',
-  'zombified_piglin'
+  'blaze', 'bogged', 'breeze', 'cave_spider', 'creeper', 'drowned',
+  'elder_guardian', 'enderman', 'endermite', 'evoker', 'ghast',
+  'guardian', 'hoglin', 'husk', 'magma_cube', 'phantom',
+  'piglin_brute', 'pillager', 'ravager', 'shulker', 'silverfish',
+  'skeleton', 'slime', 'spider', 'stray', 'vex', 'vindicator',
+  'warden', 'witch', 'wither', 'wither_skeleton', 'zoglin', 'zombie',
+  'zombie_villager', 'zombified_piglin'
 ])
 
-/**
- * @param {import('mineflayer').Bot} bot
- * @param {string} mobName
- * @param {number} [maxDistance=16]
- */
-async function attackNearestHostile(bot, mobName, maxDistance = 16) {
+async function attackNearestHostile(
+  bot,
+  mobName,
+  maxDistance = 16,
+  options = {}
+) {
+  const { signal } = options
   const normalizedName = mobName
     .toLowerCase()
     .replace(/^minecraft:/, '')
@@ -61,9 +34,7 @@ async function attackNearestHostile(bot, mobName, maxDistance = 16) {
         return false
       }
 
-      if (entity.name !== normalizedName) {
-        return false
-      }
+      if (entity.name !== normalizedName) return false
 
       return bot.entity.position.distanceTo(entity.position) <= maxDistance
     })
@@ -78,28 +49,63 @@ async function attackNearestHostile(bot, mobName, maxDistance = 16) {
     return null
   }
 
-  await bot.pvp.attack(target)
+  if (signal && signal.aborted) {
+    throw signal.reason || new Error('Combat was cancelled.')
+  }
+
+  if (bot.pvp.target) bot.pvp.forceStop()
+
+  let resolveFight
+  const fightFinished = new Promise((resolve) => {
+    resolveFight = resolve
+  })
+
+  let finished = false
+
+  const cleanup = () => {
+    bot.removeListener('stoppedAttacking', onStopped)
+    bot.removeListener('entityGone', onEntityGone)
+    if (signal) signal.removeEventListener('abort', onAbort)
+  }
+
+  const finish = (reason) => {
+    if (finished) return
+    finished = true
+    cleanup()
+    resolveFight(reason)
+  }
+
+  const onStopped = () => finish('stopped')
+  const onEntityGone = (entity) => {
+    if (entity === target) finish('gone')
+  }
+  const onAbort = () => {
+    if (bot.pvp) bot.pvp.forceStop()
+    finish('cancelled')
+  }
+
+  bot.once('stoppedAttacking', onStopped)
+  bot.on('entityGone', onEntityGone)
+  if (signal) signal.addEventListener('abort', onAbort, { once: true })
+
+  try {
+    await bot.pvp.attack(target)
+  } catch (error) {
+    cleanup()
+    throw error
+  }
 
   console.log(`Earl is attacking the nearest ${normalizedName}.`)
   bot.chat(`Attacking the nearest ${normalizedName}.`)
 
-  // wait for the fight to actually be over (target dead, despawned, or whatever)
-  await new Promise((resolve) => {
-    const cleanup = () => {
-      bot.removeListener('stoppedAttacking', onStopped)
-      bot.removeListener('entityGone', onEntityGone)
-    }
-    const onStopped = () => { cleanup(); resolve() }
-    const onEntityGone = (entity) => {
-      if (entity === target) { cleanup(); resolve() }
-    }
-    bot.once('stoppedAttacking', onStopped)
-    bot.on('entityGone', onEntityGone)
-  })
+  await fightFinished
+
+  if (signal && signal.aborted) {
+    throw signal.reason || new Error('Combat was cancelled.')
+  }
 
   if (bot.pvp) bot.pvp.forceStop()
   bot.clearControlStates()
-
   await new Promise((resolve) => setImmediate(resolve))
 
   return target
