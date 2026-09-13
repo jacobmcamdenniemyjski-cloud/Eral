@@ -48,10 +48,20 @@ function getBuildOrigin(parts, startIndex = 1) {
   }
 }
 
+// Races a promise against a timer. 
+// Does NOT cancel the underlying work, just stops the queue from waiting on it forever
+function withTimeout(promise, ms, label) {
+  let timer
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`"${label}" timed out after ${ms}ms`)), ms)
+  })
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer))
+}
+
 /**
- * @param {import('mineflayer').Bot} bot - The Mineflayer bot instance
- * @param {import('../path/to/scheduler')} scheduler - The task scheduler instance
- * @param {import('../path/to/router')} router - The command router instance
+ * @param {import('mineflayer').Bot} bot
+ * @param {import('../path/to/scheduler')} scheduler
+ * @param {import('../path/to/router')} router
  */
 function registerCommands(bot, scheduler, router) {
   bot.on('stoppedAttacking', () => {
@@ -63,6 +73,10 @@ function registerCommands(bot, scheduler, router) {
 
   // used to invalidate an in-progress queue if "earl stop" fires
   let queueGeneration = 0
+
+  const STEP_TIMEOUT_MS = 30000
+  const GOTO_TIMEOUT_MS = 3600000 // 1 hour; if Earl is traveling longer than that... why?
+  const ARRIVAL_TOLERANCE = 2 // blocks; how close counts as "arrived"
 
   async function handleGather(args, ctx) {
     const parts = args.split(/\s+/)
@@ -166,7 +180,14 @@ function registerCommands(bot, scheduler, router) {
     if (![x, y, z].every(Number.isFinite)) return bot.chat('Usage: goto <x> <y> <z>')
 
     const accepted = scheduler.setTask({ type: 'goto', x, y, z, priority: 200 })
-    if (accepted) await goTo(bot, x, y, z)
+    if (!accepted) return
+
+    await withTimeout(goTo(bot, x, y, z), GOTO_TIMEOUT_MS, 'goto')
+
+    const distance = bot.entity.position.distanceTo({ x, y, z })
+    if (distance > ARRIVAL_TOLERANCE) {
+      throw new Error(`did not reach (${x}, ${y}, ${z}) — still ${distance.toFixed(1)} blocks away`)
+    }
   }
 
   async function handleAttack(args, ctx) {
@@ -176,13 +197,19 @@ function registerCommands(bot, scheduler, router) {
     const accepted = scheduler.setTask({ type: 'attack', target: mobName, priority: 300 })
     if (!accepted) return bot.chat('I am already handling a higher-priority task.')
 
-    const target = await attackNearestHostile(bot, mobName)
-    if (!target) scheduler.clearTask()
+    try {
+      await attackNearestHostile(bot, mobName)
+    } finally {
+      const currentTask = scheduler.getCurrentTask()
+      if (currentTask && currentTask.type === "attack" && currentTask.target === mobName) {
+        scheduler.clearTask()
+      }
+    }
   }
 
   async function handleFollowMe(args, ctx) {
     const accepted = scheduler.setTask({ type: 'follow', target: ctx.username, priority: 200 })
-    if (accepted) followPlayer(bot, ctx.username)
+    if (accepted) await followPlayer(bot, ctx.username)
   }
 
   async function handleLookAtMe(args, ctx) {
@@ -244,6 +271,11 @@ function registerCommands(bot, scheduler, router) {
     const myGeneration = queueGeneration
     const segments = fullText.split(/\s+then\s+/i).map(s => s.trim()).filter(Boolean)
 
+    if (segments.length === 0) {
+      bot.chat("yo")
+      return
+    }
+
     for (const segment of segments) {
       if (queueGeneration !== myGeneration) {
         bot.chat('Queue cancelled.')
@@ -256,7 +288,17 @@ function registerCommands(bot, scheduler, router) {
         continue
       }
 
-      await match.handler(match.args, ctx)
+      const timeoutMs = match.handler === handleGoto ? GOTO_TIMEOUT_MS : STEP_TIMEOUT_MS
+
+      console.log(`[queue] starting: ${segment}`)
+
+      try {
+        await withTimeout(match.handler(match.args, ctx), timeoutMs, segment)
+        console.log(`[queue] finished: ${segment}`)
+      } catch (error) {
+        console.error(`[queue] step failed: "${segment}" - ${error.message}`)
+        bot.chat(`Couldn't finish "${segment}": ${error.message}. Moving on.`)
+      }
     }
   }
 

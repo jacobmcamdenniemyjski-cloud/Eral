@@ -36,6 +36,11 @@ const HOSTILE_MOBS = new Set([
   'zombified_piglin'
 ])
 
+/**
+ * @param {import('mineflayer').Bot} bot
+ * @param {string} mobName
+ * @param {number} [maxDistance=16]
+ */
 async function attackNearestHostile(bot, mobName, maxDistance = 16) {
   const normalizedName = mobName
     .toLowerCase()
@@ -77,6 +82,25 @@ async function attackNearestHostile(bot, mobName, maxDistance = 16) {
 
   console.log(`Earl is attacking the nearest ${normalizedName}.`)
   bot.chat(`Attacking the nearest ${normalizedName}.`)
+
+  // wait for the fight to actually be over (target dead, despawned, or whatever)
+  await new Promise((resolve) => {
+    const cleanup = () => {
+      bot.removeListener('stoppedAttacking', onStopped)
+      bot.removeListener('entityGone', onEntityGone)
+    }
+    const onStopped = () => { cleanup(); resolve() }
+    const onEntityGone = (entity) => {
+      if (entity === target) { cleanup(); resolve() }
+    }
+    bot.once('stoppedAttacking', onStopped)
+    bot.on('entityGone', onEntityGone)
+  })
+
+  if (bot.pvp) bot.pvp.forceStop()
+  bot.clearControlStates()
+
+  await new Promise((resolve) => setImmediate(resolve))
 
   return target
 }
