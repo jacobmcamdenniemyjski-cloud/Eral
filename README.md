@@ -31,3 +31,13 @@ AI / Goals → Deterministic Skills → Mineflayer → Minecraft
 - `earl build line <block> <x> <y> <z> <direction> <length>` — Builds a line of blocks.
 - `earl build wall <block> <x> <y> <z> <direction> <width> <height>` — Builds a wall.
 - `earl build floor <block> <x> <y> <z> <width> <depth>` — Builds a floor.
+
+### Keywords
+`then` — Allows for the chaining of commands. Only the first command must start with `earl`; each command after that only needs the command itself. For example, `earl attack creeper then follow me`
+
+Each command is added to a queue and executed in sequence. For things like gathering, that command in the queue will be skipped if it's impossible to perform (e.g. asking Earl to gather stone without having a pickaxe)
+
+
+`repeat` — Repeats an entire queue of commands, forever, until stopped. 
+
+Example: `earl goto 273 64 368 then gather stone 4 then goto 236 64 381 then store cobblestone 4 then repeat`

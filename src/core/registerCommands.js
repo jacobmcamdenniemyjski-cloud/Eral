@@ -66,7 +66,7 @@ function registerCommands(bot, scheduler, router) {
   // used to invalidate an in-progress queue if "earl stop" fires
   let queueGeneration = 0
 
-  const STEP_TIMEOUT_MS = 30000
+  const STEP_TIMEOUT_MS = 15000
   const GOTO_TIMEOUT_MS = 3600000 // 1 hour; if Earl is traveling longer than that... why?
   const ARRIVAL_TOLERANCE = 2 // blocks; how close counts as "arrived"
 
@@ -193,7 +193,7 @@ function registerCommands(bot, scheduler, router) {
       await attackNearestHostile(bot, mobName)
     } finally {
       const currentTask = scheduler.getCurrentTask()
-      if (currentTask && currentTask.type === "attack" && currentTask.target === mobName) {
+      if (currentTask && currentTask.type === 'attack' && currentTask.target === mobName) {
         scheduler.clearTask()
       }
     }
@@ -261,37 +261,57 @@ function registerCommands(bot, scheduler, router) {
   async function runQueue(fullText, ctx) {
     queueGeneration += 1
     const myGeneration = queueGeneration
-    const segments = fullText.split(/\s+then\s+/i).map(s => s.trim()).filter(Boolean)
 
-    if (segments.length === 0) {
+    const rawSegments = fullText.split(/\s+then\s+/i).map(s => s.trim()).filter(Boolean)
+    if (rawSegments.length === 0) {
       bot.chat("yo")
       return
     }
 
-    for (const segment of segments) {
-      if (queueGeneration !== myGeneration) {
-        bot.chat('Queue cancelled.')
-        return
-      }
+    let repeatForever = false
+    let segments = rawSegments
 
-      const match = matchVerb(segment)
-      if (!match) {
-        bot.chat(`I don't know how to "${segment}", skipping.`)
-        continue
-      }
-
-      const timeoutMs = match.handler === handleGoto ? GOTO_TIMEOUT_MS : STEP_TIMEOUT_MS
-
-      console.log(`[queue] starting: ${segment}`)
-
-      try {
-        await withTimeout(match.handler(match.args, ctx), timeoutMs, segment)
-        console.log(`[queue] finished: ${segment}`)
-      } catch (error) {
-        console.error(`[queue] step failed: "${segment}" - ${error.message}`)
-        bot.chat(`Couldn't finish "${segment}": ${error.message}. Moving on.`)
-      }
+    if (rawSegments[rawSegments.length - 1].toLowerCase() === 'repeat') {
+      repeatForever = true
+      segments = rawSegments.slice(0, -1)
     }
+
+    if (segments.length === 0) {
+      bot.chat('Nothing to repeat.')
+      return
+    }
+
+    let iteration = 0
+
+    do {
+      iteration += 1
+      if (repeatForever) console.log(`[queue] starting iteration ${iteration}`)
+
+      for (const segment of segments) {
+        if (queueGeneration !== myGeneration) {
+          bot.chat('Queue cancelled.')
+          return
+        }
+
+        const match = matchVerb(segment)
+        if (!match) {
+          bot.chat(`I don't know how to "${segment}", skipping.`)
+          continue
+        }
+
+        const timeoutMs = match.handler === handleGoto ? GOTO_TIMEOUT_MS : STEP_TIMEOUT_MS
+
+        console.log(`[queue] starting: ${segment}`)
+
+        try {
+          await withTimeout(match.handler(match.args, ctx), timeoutMs, segment)
+          console.log(`[queue] finished: ${segment}`)
+        } catch (error) {
+          console.error(`[queue] step failed: "${segment}" — ${error.message}`)
+          bot.chat(`Couldn't finish "${segment}": ${error.message}. Moving on.`)
+        }
+      }
+    } while (repeatForever && queueGeneration === myGeneration)
   }
 
   router.prefix('earl', async ({ args, username }) => {
