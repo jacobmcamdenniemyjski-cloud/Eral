@@ -11,6 +11,9 @@ const getInventory = require('../perception/getInventory')
 const gatherBlock = require('../gathering/gatherBlock')
 const craftItem = require('../crafting/craftItem')
 const attackNearestHostile = require('../combat/attackNearestHostile')
+const storeItem = require('../inventory/storeItem')
+const takeItem = require('../inventory/takeItem')
+const equipItem = require('../inventory/equipItem')
 
 function getPositiveInteger(value, fallback = 1) {
   const number = Number(value)
@@ -63,6 +66,43 @@ function registerCommands(bot, scheduler, router) {
     if (!success) {
       bot.chat(`I could not craft ${itemName}.`)
     }
+  })
+
+  router.prefix('earl store', async ({ args }) => {
+    const parts = args.split(/\s+/)
+    const itemName = parts[0]
+    const amount = getPositiveInteger(parts[1], 1)
+
+    if (!itemName) {
+      bot.chat('Usage: earl store <item> <amount>')
+      return
+    }
+
+    await storeItem(bot, itemName, amount)
+  })
+
+  router.prefix('earl take', async ({ args }) => {
+    const parts = args.split(/\s+/)
+    const itemName = parts[0]
+    const amount = getPositiveInteger(parts[1], 1)
+
+    if (!itemName) {
+      bot.chat('Usage: earl take <item> <amount>')
+      return
+    }
+
+    await takeItem(bot, itemName, amount)
+  })
+
+  router.prefix('earl equip', async ({ args }) => {
+    const itemName = args.trim()
+
+    if (!itemName) {
+      bot.chat('Usage: earl equip <item>')
+      return
+    }
+
+    await equipItem(bot, itemName)
   })
 
   router.exact('earl task', async () => {
