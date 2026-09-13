@@ -28,7 +28,7 @@ async function main() {
   const runtime = registerCommands(bot, scheduler, router)
   const ollamaProvider = new OllamaProvider({
     host: process.env.EARL_OLLAMA_HOST || 'http://127.0.0.1:11434',
-    model: process.env.EARL_OLLAMA_MODEL || 'qwen3:4b',
+    model: process.env.EARL_OLLAMA_MODEL || 'qwen3:4b-instruct',
     numCtx: Number(process.env.EARL_OLLAMA_NUM_CTX) || 4096,
     think: parseThinkSetting(process.env.EARL_OLLAMA_THINK)
   })

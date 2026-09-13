@@ -72,12 +72,12 @@ require an AI API key yet.
 ## Local Ollama setup
 
 Batch 11 uses Ollama's official JavaScript client and tool-calling loop. The
-default model is `qwen3:4b`, a relatively small local model with tool support.
+default model is `qwen3:4b-instruct`, a 2.5 GB non-thinking model with tool support.
 
 Install the model from PowerShell:
 
 ```powershell
-ollama pull qwen3:4b
+ollama pull qwen3:4b-instruct
 ollama list
 ```
 
@@ -125,7 +125,9 @@ server. Larger context settings use more memory.
 
 ### Ollama thinking and debug mode
 
-Thinking is model-aware. Qwen3 defaults to thinking disabled. GPT-OSS requires
+Thinking is model-aware. Earl defaults to the non-thinking Qwen3 Instruct model.
+The older `qwen3:4b` tag currently points to a thinking model and should not be
+used for Earl's tool loop. GPT-OSS requires
 a reasoning level and defaults to `low`; set `medium` or `high` only when a task
 needs deeper planning because higher levels take longer and use more tokens.
 

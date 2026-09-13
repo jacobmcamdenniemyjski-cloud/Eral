@@ -20,7 +20,7 @@ const TOOL_GROUPS = [
     names: ['find_block', 'get_status']
   },
   {
-    pattern: /\b(follow|come with|stay with)\b/i,
+    pattern: /\b(follow|come with|stay with|come here|come to me)\b/i,
     names: ['follow_player']
   },
   {
@@ -33,7 +33,7 @@ const TOOL_GROUPS = [
   },
   {
     pattern: /\b(gather|mine|chop|collect|dig|harvest)\b/i,
-    names: ['gather_block', 'find_block', 'get_inventory']
+    names: ['gather_block']
   },
   {
     pattern: /\b(craft|make|create|produce)\b/i,
