@@ -3,6 +3,9 @@ const assert = require('node:assert/strict')
 const OllamaAgent = require('../src/llm/OllamaAgent')
 const OllamaProvider = require('../src/llm/OllamaProvider')
 const { toOllamaTools } = require('../src/llm/OllamaAgent')
+const selectSkillTools = require('../src/llm/selectSkillTools')
+
+const silentLog = () => {}
 
 function createRegistry(execute = async (name, input) => ({
   ok: true,
@@ -77,7 +80,11 @@ test('agent executes a requested skill and returns its result to Ollama', async 
     calls.push({ name, input, context })
     return { ok: true, skill: name, data: { health: 20 } }
   })
-  const agent = new OllamaAgent({ provider, skillRegistry: registry })
+  const agent = new OllamaAgent({
+    provider,
+    skillRegistry: registry,
+    log: silentLog
+  })
   const controller = new AbortController()
   const result = await agent.ask('jacob48317', 'How are you?', {
     signal: controller.signal
@@ -89,6 +96,7 @@ test('agent executes a requested skill and returns its result to Ollama', async 
   assert.equal(calls[0].name, 'get_status')
   assert.equal(calls[0].context.signal, controller.signal)
   assert.equal(provider.requests.length, 2)
+  assert.match(provider.requests[0].messages[0].content, /\/no_think/)
 
   const toolMessage = provider.requests[1].messages
     .filter((message) => message.role === 'tool')
@@ -111,7 +119,8 @@ test('agent keeps short, separate conversation histories per player', async () =
   const agent = new OllamaAgent({
     provider,
     skillRegistry: createRegistry(),
-    historyLimit: 4
+    historyLimit: 4,
+    log: silentLog
   })
 
   await agent.ask('jacob48317', 'Hello')
@@ -136,10 +145,11 @@ test('agent stops a model that exceeds its tool-call limit', async () => {
   const agent = new OllamaAgent({
     provider,
     skillRegistry: createRegistry(),
-    maxToolCalls: 1
+    maxToolCalls: 1,
+    log: silentLog
   })
 
-  const result = await agent.ask('jacob48317', 'Loop forever')
+  const result = await agent.ask('jacob48317', 'Check health repeatedly')
 
   assert.equal(result.ok, false)
   assert.equal(result.error.code, 'TOOL_LIMIT')
@@ -156,7 +166,8 @@ test('agent propagates cancellation instead of continuing the loop', async () =>
   }
   const agent = new OllamaAgent({
     provider,
-    skillRegistry: createRegistry()
+    skillRegistry: createRegistry(),
+    log: silentLog
   })
 
   await assert.rejects(
@@ -211,4 +222,86 @@ test('provider sends non-streaming tool calls through the official client', asyn
   assert.equal(requestBody.options.num_ctx, 8192)
   assert.deepEqual(requestBody.tools, tools)
   assert.equal(response.message.content, 'Ready.')
+})
+
+test('selector sends no tools for ordinary conversation', () => {
+  const definitions = [
+    { name: 'get_status' },
+    { name: 'follow_player' },
+    { name: 'make_item' }
+  ]
+
+  assert.deepEqual(selectSkillTools('Say hello in one short sentence', definitions), [])
+})
+
+test('selector sends only tools relevant to the requested action', () => {
+  const definitions = [
+    { name: 'get_status' },
+    { name: 'get_inventory' },
+    { name: 'follow_player' },
+    { name: 'craft_item' },
+    { name: 'make_item' },
+    { name: 'attack_hostile' }
+  ]
+
+  assert.deepEqual(
+    selectSkillTools('Make one wooden pickaxe', definitions)
+      .map((definition) => definition.name),
+    ['get_inventory', 'craft_item', 'make_item']
+  )
+})
+
+test('agent refuses a tool that was not selected for the request', async () => {
+  const provider = createProvider([
+    {
+      message: {
+        role: 'assistant',
+        content: '',
+        tool_calls: [{
+          function: { name: 'get_status', arguments: {} }
+        }]
+      }
+    },
+    { message: { role: 'assistant', content: 'Hello.' } }
+  ])
+  let executionCount = 0
+  const registry = createRegistry(async () => {
+    executionCount += 1
+    return { ok: true }
+  })
+  const agent = new OllamaAgent({
+    provider,
+    skillRegistry: registry,
+    log: silentLog
+  })
+
+  const result = await agent.ask('jacob48317', 'Say hello')
+
+  assert.equal(result.ok, true)
+  assert.equal(executionCount, 0)
+  assert.equal(result.tools[0].result.error.code, 'TOOL_NOT_ALLOWED')
+})
+
+test('provider omits the tools field when no tools are selected', async () => {
+  let requestBody
+  const provider = new OllamaProvider({
+    fetch: async (url, init) => {
+      requestBody = JSON.parse(init.body)
+      return new Response(JSON.stringify({
+        message: { role: 'assistant', content: 'Hello.' },
+        done: true
+      }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' }
+      })
+    }
+  })
+
+  await provider.chat({
+    messages: [{ role: 'user', content: 'Hello' }],
+    tools: []
+  })
+
+  assert.equal(requestBody.options.num_ctx, 4096)
+  assert.equal(Object.hasOwn(requestBody, 'tools'), false)
 })

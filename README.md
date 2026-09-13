@@ -98,12 +98,17 @@ earl ask make one wooden pickaxe
 Only messages beginning with `earl ask` use the model. Existing deterministic
 commands continue to work when Ollama is offline. The model can request only
 the schema-validated skills in Earl's registry and cannot execute JavaScript.
+Earl sends only the tools relevant to each request; ordinary conversation sends
+no tool schemas. The default 4096-token context is intended to reduce CPU and
+memory load on computers without a dedicated GPU. Console logs show the tools
+selected and the time taken by each model round. Qwen is also explicitly run in
+non-thinking mode so its scratch reasoning is not sent into Minecraft chat.
 
 To try a different installed model for one PowerShell session:
 
 ```powershell
 $env:EARL_OLLAMA_MODEL="qwen3:8b"
-$env:EARL_OLLAMA_NUM_CTX="8192"
+$env:EARL_OLLAMA_NUM_CTX="4096"
 npm start
 ```
 

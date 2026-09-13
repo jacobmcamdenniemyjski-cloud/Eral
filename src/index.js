@@ -16,7 +16,7 @@ async function main() {
   const ollamaProvider = new OllamaProvider({
     host: process.env.EARL_OLLAMA_HOST || 'http://127.0.0.1:11434',
     model: process.env.EARL_OLLAMA_MODEL || 'qwen3:4b',
-    numCtx: Number(process.env.EARL_OLLAMA_NUM_CTX) || 8192
+    numCtx: Number(process.env.EARL_OLLAMA_NUM_CTX) || 4096
   })
   const llmAgent = new OllamaAgent({
     provider: ollamaProvider,
