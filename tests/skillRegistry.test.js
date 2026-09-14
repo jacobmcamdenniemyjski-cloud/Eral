@@ -150,7 +150,12 @@ test('Earl exposes every current capability through structured skills', () => {
     combatReflex
   })
 
-  assert.equal(registry.list().length, 28)
+  assert.equal(registry.list().length, 33)
+  assert.ok(registry.get('get_saved_locations'))
+  assert.ok(registry.get('mark_location'))
+  assert.ok(registry.get('forget_location'))
+  assert.ok(registry.get('go_to_location'))
+  assert.ok(registry.get('sleep_in_bed'))
   assert.ok(registry.get('make_item'))
   assert.ok(registry.get('get_farm_status'))
   assert.ok(registry.get('farm_crops'))
