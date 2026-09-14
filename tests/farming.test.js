@@ -1,0 +1,180 @@
+const test = require('node:test')
+const assert = require('node:assert/strict')
+const { Vec3 } = require('vec3')
+const farmCrops = require('../src/farming/farmCrops')
+const getFarmStatus = require('../src/farming/getFarmStatus')
+const {
+  getCropAge,
+  resolveCropName
+} = require('../src/farming/crops')
+
+const BLOCKS = {
+  air: { id: 0 },
+  wheat: { id: 206 },
+  carrots: { id: 439 },
+  potatoes: { id: 440 },
+  beetroots: { id: 663 },
+  farmland: { id: 207 },
+  chest: { id: 54 }
+}
+
+function key(position) {
+  return `${position.x},${position.y},${position.z}`
+}
+
+function createBlock(name, position, age = null) {
+  return {
+    name,
+    type: BLOCKS[name].id,
+    position,
+    metadata: age,
+    boundingBox: name === 'air' ? 'empty' : 'block',
+    getProperties: age === null ? () => ({}) : () => ({ age })
+  }
+}
+
+function createBot(options = {}) {
+  const chats = []
+  const world = new Map()
+  const inventory = options.inventory || [
+    { name: 'wheat_seeds', type: 951, count: 16 }
+  ]
+  const mature = new Vec3(2, 65, 0)
+  const growing = new Vec3(3, 65, 0)
+  const empty = new Vec3(4, 65, 0)
+
+  world.set(key(mature), createBlock('wheat', mature, 7))
+  world.set(key(mature.offset(0, -1, 0)), createBlock(
+    'farmland',
+    mature.offset(0, -1, 0)
+  ))
+  world.set(key(growing), createBlock('wheat', growing, 3))
+  world.set(key(growing.offset(0, -1, 0)), createBlock(
+    'farmland',
+    growing.offset(0, -1, 0)
+  ))
+  world.set(key(empty.offset(0, -1, 0)), createBlock(
+    'farmland',
+    empty.offset(0, -1, 0)
+  ))
+
+  const bot = {
+    registry: {
+      blocksByName: BLOCKS,
+      itemsByName: {
+        wheat_seeds: { id: 951 },
+        carrot: { id: 1227 },
+        potato: { id: 1228 },
+        beetroot_seeds: { id: 1288 }
+      }
+    },
+    entity: {
+      position: new Vec3(0, 65, 0),
+      eyeHeight: 1.62
+    },
+    inventory: {
+      items: () => inventory,
+      emptySlotCount: () => options.emptySlots ?? 10
+    },
+    heldItem: null,
+    findBlocks({ matching }) {
+      const ids = new Set(Array.isArray(matching) ? matching : [matching])
+      return Array.from(world.values())
+        .filter((block) => ids.has(block.type))
+        .map((block) => block.position)
+    },
+    findBlock() {
+      return options.container || null
+    },
+    blockAt(position) {
+      return world.get(key(position)) || createBlock('air', position)
+    },
+    collectBlock: {
+      itemFilter: () => true,
+      async collect(block, collectOptions) {
+        bot.lastCollectOptions = collectOptions
+        world.set(key(block.position), createBlock('air', block.position))
+      },
+      async cancelTask() {}
+    },
+    pathfinder: {
+      async goto() {},
+      setGoal() {}
+    },
+    async equip(item) {
+      bot.heldItem = item
+    },
+    async placeBlock(farmland, face) {
+      const position = farmland.position.plus(face)
+      world.set(key(position), createBlock('wheat', position, 0))
+    },
+    chat(message) {
+      chats.push(message)
+    }
+  }
+
+  return { bot, chats, world, mature, growing, empty }
+}
+
+test('crop aliases and modern block-state ages are recognized', () => {
+  assert.equal(resolveCropName('carrot'), 'carrots')
+  assert.equal(resolveCropName('beetroot seeds'), 'beetroots')
+  assert.equal(resolveCropName('all crops'), 'all')
+  assert.equal(getCropAge({ getProperties: () => ({ age: '7' }) }), 7)
+})
+
+test('farm status separates mature, growing, and empty farmland', () => {
+  const { bot } = createBot()
+  const status = getFarmStatus(bot, 'wheat', 16)
+
+  assert.deepEqual(status, {
+    range: 16,
+    emptyFarmland: 1,
+    crops: [{ crop: 'wheat', mature: 1, growing: 1, total: 2 }]
+  })
+})
+
+test('farming harvests only mature crops and replants the same block', async () => {
+  const { bot, mature, growing } = createBot()
+  const result = await farmCrops(bot, 'wheat', 1)
+
+  assert.equal(result.harvested, 1)
+  assert.equal(result.replanted, 1)
+  assert.equal(result.complete, true)
+  assert.equal(bot.blockAt(mature).name, 'wheat')
+  assert.equal(getCropAge(bot.blockAt(mature)), 0)
+  assert.equal(getCropAge(bot.blockAt(growing)), 3)
+  assert.equal(bot.lastCollectOptions.itemFilter({ name: 'wheat_seeds' }), false)
+})
+
+test('a harvested crop reports a replant failure when no seed exists', async () => {
+  const { bot } = createBot({ inventory: [] })
+  const result = await farmCrops(bot, 'wheat', 1)
+
+  assert.equal(result.harvested, 1)
+  assert.equal(result.replanted, 0)
+  assert.equal(result.complete, false)
+  assert.equal(result.failures.length, 1)
+})
+
+test('unknown crops and a full inventory without a chest fail safely', async () => {
+  const unknown = createBot()
+  assert.equal(await farmCrops(unknown.bot, 'pumpkins', 1), false)
+  assert.match(unknown.chats.at(-1), /do not recognize/i)
+
+  const full = createBot({ emptySlots: 0 })
+  assert.equal(await farmCrops(full.bot, 'wheat', 1), false)
+  assert.match(full.chats.at(-1), /inventory is full/i)
+})
+
+test('an already-cancelled farming action does no work', async () => {
+  const controller = new AbortController()
+  controller.abort(new Error('test cancellation'))
+  const { bot, mature } = createBot()
+
+  await assert.rejects(
+    farmCrops(bot, 'wheat', 1, { signal: controller.signal }),
+    /test cancellation/
+  )
+  assert.equal(getCropAge(bot.blockAt(mature)), 7)
+})

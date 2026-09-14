@@ -17,6 +17,8 @@ const { placeBlock } = require('../building/placeBlock')
 const buildLine = require('../building/buildLine')
 const buildWall = require('../building/buildWall')
 const buildFloor = require('../building/buildFloor')
+const farmCrops = require('../farming/farmCrops')
+const getFarmStatus = require('../farming/getFarmStatus')
 const { resolveResourceName } = require('../core/parseItemRequest')
 const SkillRegistry = require('./SkillRegistry')
 
@@ -65,6 +67,12 @@ function itemAmountSchema(kind, maximum = 64) {
       default: 1
     }
   }, [kind, 'amount'])
+}
+
+const cropNameSchema = {
+  type: 'string',
+  enum: ['wheat', 'carrots', 'potatoes', 'beetroots', 'all'],
+  description: 'Supported crop name, or all for every supported crop.'
 }
 
 function createSkillRegistry(options) {
@@ -245,6 +253,38 @@ function createSkillRegistry(options) {
       normalize(item, 'item'),
       amount,
       { signal: context.signal }
+    )
+  })
+
+  registry.register({
+    name: 'get_farm_status',
+    description: 'Count mature and growing wheat, carrots, potatoes, or beetroots plus empty farmland nearby.',
+    inputSchema: objectSchema({
+      crop: cropNameSchema
+    }, ['crop']),
+    safety: 'read_only',
+    execute: async ({ crop }) => getFarmStatus(bot, crop, 16)
+  })
+
+  registry.register({
+    name: 'farm_crops',
+    description: 'Harvest mature nearby wheat, carrots, potatoes, or beetroots, collect the drops, and immediately replant every harvested block.',
+    inputSchema: objectSchema({
+      crop: cropNameSchema,
+      amount: {
+        type: 'integer',
+        minimum: 1,
+        maximum: 64,
+        default: 1
+      }
+    }, ['crop', 'amount']),
+    timeoutMs: 600000,
+    safety: 'world_write',
+    execute: async ({ crop, amount }, context) => farmCrops(
+      bot,
+      crop,
+      amount,
+      { signal: context.signal, maxDistance: 16 }
     )
   })
 

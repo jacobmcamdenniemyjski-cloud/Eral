@@ -28,6 +28,9 @@ AI / Goals → Deterministic Skills → Mineflayer → Minecraft
 - `earl gather <block> <amount>` — Mines and collects up to 64 blocks.
 - `earl craft <item> <amount>` — Crafts items, using a nearby table when required.
 - `earl make <item> <amount>` — Crafts required intermediate items, then the requested item.
+- `earl farm status [crop]` — Counts mature crops, growing crops, and empty farmland nearby.
+- `earl farm <crop> <amount>` — Harvests mature crops and immediately replants them.
+- `earl harvest <crop> <amount>` — Alias for `earl farm`.
 - `earl smelt <item> <amount> [with <fuel>]` — Adds to a compatible furnace load, fuels it, and collects the finished items.
 - `earl furnace status` — Reports nearby furnace input, fuel, output, and progress.
 - `earl furnace collect` — Retrieves all finished output from the nearby furnace.
@@ -48,7 +51,7 @@ AI / Goals → Deterministic Skills → Mineflayer → Minecraft
 
 ## Structured skill registry
 
-Earl's chat commands and AI planner share the same 25 deterministic
+Earl's chat commands and AI planner share the same 27 deterministic
 skills. Each skill has a stable name, description, JSON input schema, timeout,
 and safety category. Inputs are validated with Ajv before Minecraft code runs,
 and every execution returns a structured success or error result.
@@ -131,6 +134,26 @@ earl smelt raw iron 3
 earl smelt raw iron 3 with coal
 earl ask collect the furnace output
 ```
+
+## Farming
+
+Earl farms existing fields with Mineflayer's official block APIs plus the
+already-installed pathfinder and collect-block systems. Supported crops are
+`wheat`, `carrots`, `potatoes`, and `beetroots`. Only fully mature crops are
+harvested, and Earl preserves the correct seed item so each harvested block can
+be replanted immediately. `all` farms every supported mature crop nearby.
+
+```text
+earl farm status
+earl farm status wheat
+earl farm wheat 8
+earl harvest carrots 4
+earl farm all 16
+earl ask harvest four wheat
+```
+
+This batch operates existing farmland. Creating, tilling, irrigating, and
+expanding a new field remain separate future skills.
 
 To try a different installed model for one PowerShell session:
 

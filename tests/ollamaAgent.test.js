@@ -423,6 +423,23 @@ test('selector makes gathering and come-to-me requests unambiguous', () => {
   )
 })
 
+test('selector exposes only farming tools for a harvest request', () => {
+  const definitions = [
+    { name: 'gather_block' },
+    { name: 'get_farm_status' },
+    { name: 'farm_crops' },
+    { name: 'make_item' }
+  ]
+
+  assert.deepEqual(
+    selectSkillTools('harvest four wheat', definitions),
+    [
+      { name: 'get_farm_status' },
+      { name: 'farm_crops' }
+    ]
+  )
+})
+
 test('simple action prompts resolve directly without waiting for Ollama', async () => {
   const provider = createProvider([])
   const calls = []
@@ -472,6 +489,14 @@ test('direct skill resolver handles coordinates and common amount wording', () =
   assert.deepEqual(
     resolveDirectSkillCall('follow Alex_123', 'jacob48317'),
     { name: 'follow_player', input: { player: 'Alex_123' } }
+  )
+  assert.deepEqual(
+    resolveDirectSkillCall('harvest four wheat', 'jacob48317'),
+    { name: 'farm_crops', input: { crop: 'wheat', amount: 4 } }
+  )
+  assert.deepEqual(
+    resolveDirectSkillCall('check the farm', 'jacob48317'),
+    { name: 'get_farm_status', input: { crop: 'all' } }
   )
 })
 

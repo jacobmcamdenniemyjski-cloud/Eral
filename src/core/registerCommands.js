@@ -3,6 +3,7 @@ const CombatReflex = require('../combat/CombatReflex')
 const CommandQueue = require('../scheduler/CommandQueue')
 const createSkillRegistry = require('../skills/createSkillRegistry')
 const { parseItemRequest } = require('./parseItemRequest')
+const { resolveCropName } = require('../farming/crops')
 
 function getBuildOrigin(parts, startIndex = 1) {
   const coordinates = parts.slice(startIndex, startIndex + 3).map(Number)
@@ -178,6 +179,54 @@ function registerCommands(bot, scheduler, router) {
       item: request.name,
       amount: request.amount
     }, context)
+  }
+
+  async function handleFarm(args, context) {
+    const request = parseItemRequest(bot, args, { kind: 'either' })
+    const crop = request && resolveCropName(request.name)
+
+    if (!request || !crop) {
+      return bot.chat(
+        'Usage: farm <wheat|carrots|potatoes|beetroots|all> <amount>'
+      )
+    }
+
+    if (request.amount > 64) {
+      return bot.chat('Farm at most 64 crops per command.')
+    }
+
+    return runSkill('farm_crops', {
+      crop,
+      amount: request.amount
+    }, context)
+  }
+
+  async function handleFarmStatus(args, context) {
+    const crop = resolveCropName(args.trim() || 'all')
+    if (!crop) {
+      return bot.chat(
+        'Usage: farm status [wheat|carrots|potatoes|beetroots|all]'
+      )
+    }
+
+    const status = await runSkill('get_farm_status', { crop }, context)
+    if (!status) return false
+
+    const mature = status.crops.reduce(
+      (total, entry) => total + entry.mature,
+      0
+    )
+    const growing = status.crops.reduce(
+      (total, entry) => total + entry.growing,
+      0
+    )
+
+    console.log('Farm status:', status)
+    bot.chat(
+      `Farm: ${mature} mature, ${growing} growing, ` +
+      `${status.emptyFarmland} empty farmland.`
+    )
+    return status
   }
 
   async function handleSmelt(args, context) {
@@ -530,6 +579,14 @@ function registerCommands(bot, scheduler, router) {
     { verb: 'gather', skill: 'gather_block', handler: handleGather },
     { verb: 'craft', skill: 'craft_item', handler: handleCraft },
     { verb: 'make', skill: 'make_item', handler: handleMake },
+    {
+      verb: 'farm status',
+      skill: 'get_farm_status',
+      handler: handleFarmStatus,
+      passive: true
+    },
+    { verb: 'farm', skill: 'farm_crops', handler: handleFarm },
+    { verb: 'harvest', skill: 'farm_crops', handler: handleFarm },
     {
       verb: 'furnace status',
       skill: 'get_furnace_status',

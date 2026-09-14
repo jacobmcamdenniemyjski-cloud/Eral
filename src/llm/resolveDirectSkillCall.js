@@ -11,6 +11,8 @@ const NUMBER_WORDS = {
   ten: 10
 }
 
+const { resolveCropName } = require('../farming/crops')
+
 function cleanPrompt(prompt) {
   return String(prompt || '')
     .trim()
@@ -127,6 +129,27 @@ function resolveDirectSkillCall(prompt, username) {
     }
   }
 
+  const farmMatch = text.match(/^(?:farm|harvest|replant)\s+(.+)$/)
+  if (farmMatch) {
+    const request = parseAmountAndResource(farmMatch[1])
+    const crop = request && resolveCropName(request.resource)
+
+    if (request && crop) {
+      return {
+        name: 'farm_crops',
+        input: { crop, amount: request.amount }
+      }
+    }
+  }
+
+  const farmStatusMatch = text.match(
+    /^(?:farm status|check (?:the )?farm|inspect (?:the )?(?:farm|crops?))(?:\s+(.+))?$/
+  )
+  if (farmStatusMatch) {
+    const crop = resolveCropName(farmStatusMatch[1] || 'all')
+    if (crop) return { name: 'get_farm_status', input: { crop } }
+  }
+
   const coordinates = text.match(
     /^(?:go to|goto|move to|walk to)\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)$/
   )
@@ -144,7 +167,7 @@ function resolveDirectSkillCall(prompt, username) {
   const calls = [
     resourceCall(
       text,
-      /^(?:gather|collect|mine|chop|dig|harvest)\s+(.+)$/,
+      /^(?:gather|collect|mine|chop|dig)\s+(.+)$/,
       'gather_block',
       'block'
     ),
