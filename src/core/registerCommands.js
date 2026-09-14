@@ -448,6 +448,8 @@ function registerCommands(bot, scheduler, router) {
       bot.chat(
         `Saved ${location.name} at ${location.x}, ${location.y}, ${location.z}.`
       )
+    } else {
+      bot.chat(`I could not save "${name}". Check the console for details.`)
     }
     return location
   }
@@ -487,7 +489,11 @@ function registerCommands(bot, scheduler, router) {
     if (!name) return bot.chat('Usage: go <location name>')
 
     const location = await runSkill('go_to_location', { name }, context)
-    if (location) bot.chat(`Arrived at ${location.name}.`)
+    if (location) {
+      bot.chat(`Arrived at ${location.name}.`)
+    } else {
+      bot.chat(`I could not reach "${name}". Check the console for details.`)
+    }
     return location
   }
 
@@ -501,6 +507,8 @@ function registerCommands(bot, scheduler, router) {
           ? 'I am already sleeping.'
           : 'Good night.'
       )
+    } else {
+      bot.chat('I could not sleep. Check the console for the reason.')
     }
     return result
   }
