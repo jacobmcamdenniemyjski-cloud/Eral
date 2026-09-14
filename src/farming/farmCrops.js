@@ -9,6 +9,10 @@ const {
 } = require('./crops')
 
 const COLLECT_TIMEOUT_MS = 45000
+const HARVEST_TIMEOUT_MS = 10000
+const BLOCK_CONFIRM_TICKS = 20
+const DROP_SPAWN_TICKS = 3
+const MAX_HARVEST_ATTEMPTS = 2
 
 function cancellationError(signal) {
   return signal && signal.reason instanceof Error
@@ -32,6 +36,14 @@ async function cancelFarming(bot) {
   }
 
   if (bot.pathfinder) bot.pathfinder.setGoal(null)
+
+  if (bot.targetDigBlock && typeof bot.stopDigging === 'function') {
+    try {
+      await bot.stopDigging()
+    } catch (error) {
+      console.log('[farm] stop digging cleanup failed: ' + error.message)
+    }
+  }
 }
 
 function findMatureCrops(bot, definitions, amount, maxDistance) {
@@ -81,13 +93,193 @@ function positionKey(position) {
   return `${position.x},${position.y},${position.z}`
 }
 
+async function waitTicks(bot, ticks) {
+  if (typeof bot.waitForTicks === 'function') {
+    await bot.waitForTicks(ticks)
+    return
+  }
+
+  await new Promise((resolve) => setTimeout(resolve, ticks * 50))
+}
+
+async function moveWithinCropReach(bot, position, signal) {
+  throwIfCancelled(signal)
+
+  const cropCenter = position.offset(0.5, 0.5, 0.5)
+  const eyePosition = bot.entity.position.offset(
+    0,
+    bot.entity.eyeHeight || 1.62,
+    0
+  )
+
+  if (eyePosition.distanceTo(cropCenter) <= 4.5) return
+
+  await bot.pathfinder.goto(
+    new goals.GoalNear(position.x, position.y, position.z, 1)
+  )
+
+  throwIfCancelled(signal)
+  const newEyePosition = bot.entity.position.offset(
+    0,
+    bot.entity.eyeHeight || 1.62,
+    0
+  )
+
+  if (newEyePosition.distanceTo(cropCenter) > 5) {
+    throw new Error('could not get within harvesting range')
+  }
+}
+
+async function stopDiggingSafely(bot) {
+  if (!bot.targetDigBlock || typeof bot.stopDigging !== 'function') return
+
+  try {
+    await bot.stopDigging()
+  } catch (error) {
+    console.log('[farm] stop digging failed: ' + error.message)
+  }
+}
+
+async function waitForCropChange(bot, position, definition, signal) {
+  for (let tick = 0; tick < BLOCK_CONFIRM_TICKS; tick += 1) {
+    throwIfCancelled(signal)
+    const current = bot.blockAt(position)
+    if (!isMatureCrop(current, definition)) return current
+    await waitTicks(bot, 1)
+  }
+
+  return bot.blockAt(position)
+}
+
+async function harvestCropBlock(bot, position, definition, signal) {
+  let lastError = null
+
+  for (let attempt = 1; attempt <= MAX_HARVEST_ATTEMPTS; attempt += 1) {
+    throwIfCancelled(signal)
+    await moveWithinCropReach(bot, position, signal)
+
+    const block = bot.blockAt(position)
+    if (!isMatureCrop(block, definition)) {
+      return { harvested: false, reason: 'crop is no longer mature' }
+    }
+
+    if (
+      typeof bot.canDigBlock === 'function' &&
+      !bot.canDigBlock(block)
+    ) {
+      lastError = new Error('crop is not reachable from the current position')
+      continue
+    }
+
+    console.log(
+      '[farm] breaking ' + definition.crop + ' at ' + position +
+      ' (attempt ' + attempt + '/' + MAX_HARVEST_ATTEMPTS + ').'
+    )
+
+    if (typeof bot.lookAt === 'function') {
+      await bot.lookAt(position.offset(0.5, 0.5, 0.5), true)
+    }
+
+    try {
+      await withTimeout(
+        bot.dig(block, true),
+        HARVEST_TIMEOUT_MS,
+        'breaking ' + definition.crop + ' at ' + position,
+        { onTimeout: () => stopDiggingSafely(bot) }
+      )
+    } catch (error) {
+      if (signal && signal.aborted) throw cancellationError(signal)
+      lastError = error
+      await stopDiggingSafely(bot)
+      continue
+    }
+
+    const afterHarvest = await waitForCropChange(
+      bot,
+      position,
+      definition,
+      signal
+    )
+
+    if (!isMatureCrop(afterHarvest, definition)) {
+      return { harvested: true, attempts: attempt }
+    }
+
+    lastError = new Error('the server did not confirm the crop was broken')
+    await stopDiggingSafely(bot)
+    await waitTicks(bot, 2)
+  }
+
+  throw lastError || new Error('the crop could not be harvested')
+}
+
+function nearbyItemDrops(bot, position, radius = 6) {
+  return Object.values(bot.entities || {})
+    .filter((entity) => (
+      entity &&
+      entity.name === 'item' &&
+      entity.position &&
+      entity.position.distanceTo(position) <= radius
+    ))
+    .sort((left, right) => (
+      left.position.distanceTo(bot.entity.position) -
+      right.position.distanceTo(bot.entity.position)
+    ))
+}
+
+async function collectCropDrops(
+  bot,
+  position,
+  chestLocations,
+  seedName,
+  signal
+) {
+  if (!bot.collectBlock || typeof bot.collectBlock.collect !== 'function') {
+    return { collected: 0 }
+  }
+
+  await waitTicks(bot, DROP_SPAWN_TICKS)
+  throwIfCancelled(signal)
+
+  const drops = nearbyItemDrops(bot, position)
+  let collected = 0
+
+  for (const drop of drops) {
+    throwIfCancelled(signal)
+
+    try {
+      await withTimeout(
+        bot.collectBlock.collect(drop, {
+          chestLocations,
+          itemFilter: seedPreservingFilter(bot, seedName)
+        }),
+        COLLECT_TIMEOUT_MS,
+        'collecting crop drops near ' + position,
+        { onTimeout: () => cancelFarming(bot) }
+      )
+      collected += 1
+    } catch (error) {
+      if (signal && signal.aborted) throw cancellationError(signal)
+      console.log('[farm] drop collection warning: ' + error.message)
+      return { collected, error: error.message }
+    }
+  }
+
+  return { collected }
+}
+
 async function replantCrop(bot, position, definition, signal) {
   throwIfCancelled(signal)
 
   const farmland = bot.blockAt(position.offset(0, -1, 0))
   const target = bot.blockAt(position)
   if (!farmland || farmland.name !== 'farmland') return false
-  if (target && target.type !== 0) return false
+  if (target && target.type !== 0) {
+    return Boolean(
+      target.name === definition.block &&
+      !isMatureCrop(target, definition)
+    )
+  }
 
   const seed = bot.inventory.items()
     .find((item) => item.name === definition.seed && item.count > 0)
@@ -190,23 +382,30 @@ async function farmCrops(
     }
 
     try {
-      await withTimeout(
-        bot.collectBlock.collect(block, {
-          chestLocations,
-          itemFilter: seedPreservingFilter(bot, candidate.definition.seed)
-        }),
-        COLLECT_TIMEOUT_MS,
-        `harvesting ${candidate.definition.crop} at ${candidate.position}`,
-        { onTimeout: () => cancelFarming(bot) }
+      const harvestResult = await harvestCropBlock(
+        bot,
+        candidate.position,
+        candidate.definition,
+        signal
       )
 
-      throwIfCancelled(signal)
-      const afterHarvest = bot.blockAt(candidate.position)
-      if (isMatureCrop(afterHarvest, candidate.definition)) {
-        throw new Error('the crop was not broken by the collection task')
+      if (!harvestResult.harvested) {
+        throw new Error(harvestResult.reason || 'the crop was not harvested')
       }
 
       harvested += 1
+
+      const dropResult = await collectCropDrops(
+        bot,
+        candidate.position,
+        chestLocations,
+        candidate.definition.seed,
+        signal
+      )
+
+      if (dropResult.error) {
+        failures.push('drop collection: ' + dropResult.error)
+      }
 
       if (await replantCrop(
         bot,
