@@ -134,7 +134,9 @@ function createBot(options = {}) {
       async cancelTask() {}
     },
     pathfinder: {
-      async goto() {},
+      async goto(goal) {
+        bot.entity.position = new Vec3(goal.x, goal.y, goal.z)
+      },
       setGoal() {}
     },
     canDigBlock() {
@@ -158,7 +160,8 @@ function createBot(options = {}) {
 
       bot.targetDigBlock = null
     },
-    async equip(item) {      bot.heldItem = item
+    async equip(item) {
+      bot.heldItem = item
     },
     async placeBlock(farmland, face) {
       const position = farmland.position.plus(face)
