@@ -18,6 +18,8 @@ function usage(message) {
     '         recipes ITEM, use BLOCK, farm CROP COUNT, smelt ITEM COUNT [fuel]',
     'Locations: mark NAME, marks, go_mark NAME, unmark NAME',
     'Recovery: deaths, deathpoint, task, cancel',
+    'Procedures: procedures [status], procedure_stage JSON, procedure_approve ID',
+    '            procedure_reject ID REASON, procedure_run ID',
     'Generic: exec SKILL JSON, bg SKILL JSON'
   ].join('\n'))
   process.exitCode = 2
@@ -113,7 +115,35 @@ async function main() {
       return request('GET', '/tasks')
     case 'cancel':
     case 'stop':
-      return request('POST', '/task/cancel', {})
+      return request('POST', '/cancel', {})
+    case 'procedures':
+      return request('GET', `/procedures?status=${args[0] || 'all'}`)
+    case 'procedure_stage': {
+      if (args.length === 0) return usage('procedure_stage requires JSON.')
+      let definition
+      try {
+        definition = JSON.parse(args.join(' '))
+      } catch {
+        throw new Error('Procedure definition must be valid JSON.')
+      }
+      return request('POST', '/procedures/stage', definition)
+    }
+    case 'procedure_approve':
+      if (!args[0]) return usage('procedure_approve requires an id.')
+      return request('POST', `/procedures/${integer(args[0])}/approve`, {
+        reviewedBy: process.env.USERNAME || process.env.USER || 'player'
+      })
+    case 'procedure_reject':
+      if (!args[0]) return usage('procedure_reject requires an id.')
+      return request('POST', `/procedures/${integer(args[0])}/reject`, {
+        reason: args.slice(1).join(' ') || 'rejected by player',
+        reviewedBy: process.env.USERNAME || process.env.USER || 'player'
+      })
+    case 'procedure_run':
+      if (!args[0]) return usage('procedure_run requires an id.')
+      return request('POST', `/procedures/${integer(args[0])}/execute`, {
+        requestedBy: 'hermes'
+      })
     case 'follow':
       if (!args[0]) return usage('follow requires a player.')
       return execute('follow_player', { player: args[0] })
