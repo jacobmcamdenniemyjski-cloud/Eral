@@ -7,6 +7,7 @@ HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
 SOUL_FILE="$HERMES_HOME/SOUL.md"
 SOUL_BACKUP="$SOUL_FILE.earl-$$.bak"
 HAD_SOUL=false
+SOUL_ACTIVE=false
 EARL_PID=""
 STARTED_EARL=false
 
@@ -14,10 +15,12 @@ cleanup() {
   if [ "$STARTED_EARL" = true ] && [ -n "$EARL_PID" ]; then
     kill "$EARL_PID" 2>/dev/null || true
   fi
-  if [ "$HAD_SOUL" = true ] && [ -f "$SOUL_BACKUP" ]; then
-    mv "$SOUL_BACKUP" "$SOUL_FILE"
-  else
-    rm -f "$SOUL_FILE"
+  if [ "$SOUL_ACTIVE" = true ]; then
+    if [ "$HAD_SOUL" = true ] && [ -f "$SOUL_BACKUP" ]; then
+      mv "$SOUL_BACKUP" "$SOUL_FILE"
+    else
+      rm -f "$SOUL_FILE"
+    fi
   fi
 }
 trap cleanup EXIT INT TERM
@@ -41,6 +44,7 @@ if [ -f "$SOUL_FILE" ]; then
   HAD_SOUL=true
 fi
 cp "$ROOT_DIR/prompts/SOUL-earl.md" "$SOUL_FILE"
+SOUL_ACTIVE=true
 
 if ! curl -fsS "$API_URL/health" >/dev/null 2>&1; then
   npm start &
