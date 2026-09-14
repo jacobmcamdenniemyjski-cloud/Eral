@@ -97,6 +97,30 @@ function resolveDirectSkillCall(prompt, username) {
     return { name: 'stop_all', input: {} }
   }
 
+  if (/^(?:sleep|go to sleep|go to bed|sleep in (?:a|the) nearby bed)$/.test(text)) {
+    return { name: 'sleep_in_bed', input: {} }
+  }
+
+  if (/^(?:locations|list locations|show locations|show saved locations|where are your saved locations)$/.test(text)) {
+    return { name: 'get_saved_locations', input: {} }
+  }
+
+  const markMatch = text.match(
+    /^(?:mark|save)(?: this location| this place| this| here)?(?: as)?\s+(.+)$/
+  ) || text.match(
+    /^remember(?: this location| this place| this| here)? as\s+(.+)$/
+  )
+  if (markMatch) {
+    return { name: 'mark_location', input: { name: markMatch[1] } }
+  }
+
+  const forgetMatch = text.match(
+    /^(?:forget|remove|delete)(?: the)?(?: saved)?(?: location)?\s+(.+)$/
+  )
+  if (forgetMatch) {
+    return { name: 'forget_location', input: { name: forgetMatch[1] } }
+  }
+
   if (
     /^(?:furnace status|inspect (?:the )?furnace|check (?:the )?furnace|what(?:'s| is) (?:in|inside) (?:the )?furnace)$/.test(text)
   ) {
@@ -169,6 +193,20 @@ function resolveDirectSkillCall(prompt, username) {
         y: Number(coordinates[2]),
         z: Number(coordinates[3])
       }
+    }
+  }
+
+  if (/^(?:go|return)(?: back)? home$/.test(text)) {
+    return { name: 'go_to_location', input: { name: 'home' } }
+  }
+
+  const savedLocationMatch = text.match(
+    /^(?:go|travel|walk)(?: to)? (?:the )?(?:saved location|marked place|mark)\s+(.+)$/
+  )
+  if (savedLocationMatch) {
+    return {
+      name: 'go_to_location',
+      input: { name: savedLocationMatch[1] }
     }
   }
 

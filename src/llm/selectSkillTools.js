@@ -86,6 +86,29 @@ const TOOL_GROUPS = [
   }
 ]
 
+const LOCATION_INTENTS = [
+  {
+    pattern: /\b(?:mark|save|remember)\b.*\b(?:home|location|place|spot|base|mine|farm|village)\b/i,
+    names: ['mark_location']
+  },
+  {
+    pattern: /\b(?:list|show|what|where)\b.*\b(?:saved locations?|marked places?|locations?|marks?)\b|\b(?:locations|saved places|marks)\b/i,
+    names: ['get_saved_locations']
+  },
+  {
+    pattern: /\b(?:forget|remove|delete)\b.*\b(?:home|location|place|spot|base|mine|farm|village)\b/i,
+    names: ['forget_location']
+  },
+  {
+    pattern: /\b(?:go|return|travel|walk)(?: back)?(?: to)?\b.*\b(?:home|saved location|marked place|base|mine|farm|village)\b/i,
+    names: ['go_to_location']
+  },
+  {
+    pattern: /^(?:please )?(?:sleep|go to sleep|go to bed|sleep in (?:a|the) nearby bed)(?: please)?[.!]?$/i,
+    names: ['sleep_in_bed']
+  }
+]
+
 const FURNACE_INTENTS = [
   {
     pattern: /\b(?:furnace status|inspect (?:the )?furnace|check (?:the )?furnace)\b|\bwhat(?:'s| is) (?:in|inside) (?:the )?furnace\b/i,
@@ -107,6 +130,13 @@ const FARM_INTENTS = [
 function selectSkillTools(prompt, definitions, options = {}) {
   const maxTools = options.maxTools || 10
   const selectedNames = new Set()
+
+  for (const intent of LOCATION_INTENTS) {
+    if (!intent.pattern.test(prompt)) continue
+    return definitions
+      .filter((definition) => intent.names.includes(definition.name))
+      .slice(0, maxTools)
+  }
 
   for (const intent of FURNACE_INTENTS) {
     if (!intent.pattern.test(prompt)) continue
@@ -134,5 +164,6 @@ function selectSkillTools(prompt, definitions, options = {}) {
 
 module.exports = selectSkillTools
 module.exports.FARM_INTENTS = FARM_INTENTS
+module.exports.LOCATION_INTENTS = LOCATION_INTENTS
 module.exports.TOOL_GROUPS = TOOL_GROUPS
 module.exports.FURNACE_INTENTS = FURNACE_INTENTS

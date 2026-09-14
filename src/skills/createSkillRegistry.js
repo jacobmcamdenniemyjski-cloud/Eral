@@ -19,6 +19,12 @@ const buildWall = require('../building/buildWall')
 const buildFloor = require('../building/buildFloor')
 const farmCrops = require('../farming/farmCrops')
 const getFarmStatus = require('../farming/getFarmStatus')
+const LocationStore = require('../locations/LocationStore')
+const {
+  goToSavedLocation,
+  markCurrentLocation
+} = require('../locations/locationActions')
+const sleepInBed = require('../survival/sleepInBed')
 const { resolveResourceName } = require('../core/parseItemRequest')
 const SkillRegistry = require('./SkillRegistry')
 
@@ -69,6 +75,14 @@ function itemAmountSchema(kind, maximum = 64) {
   }, [kind, 'amount'])
 }
 
+const locationNameSchema = {
+  type: 'string',
+  minLength: 1,
+  maxLength: 48,
+  pattern: '^[a-zA-Z0-9 _-]+$',
+  description: 'Short saved location name such as home, mine, or village.'
+}
+
 const cropNameSchema = {
   type: 'string',
   enum: ['wheat', 'carrots', 'potatoes', 'beetroots', 'all'],
@@ -77,6 +91,7 @@ const cropNameSchema = {
 
 function createSkillRegistry(options) {
   const { bot, scheduler, combatReflex } = options
+  const locationStore = options.locationStore || new LocationStore()
   const registry = new SkillRegistry()
 
   function normalize(name, kind) {
@@ -148,6 +163,93 @@ function createSkillRegistry(options) {
     inputSchema: emptySchema,
     safety: 'read_only',
     execute: async () => scheduler.getCurrentTask()
+  })
+
+  registry.register({
+    name: 'get_saved_locations',
+    description: 'List Earl saved named locations and their coordinates.',
+    inputSchema: emptySchema,
+    safety: 'read_only',
+    execute: async () => locationStore.list()
+  })
+
+  registry.register({
+    name: 'mark_location',
+    description: 'Save Earl current coordinates under a short name. Use home to remember Earl home.',
+    inputSchema: objectSchema({
+      name: locationNameSchema
+    }, ['name']),
+    safety: 'world_write',
+    execute: async ({ name }) => markCurrentLocation(bot, locationStore, name)
+  })
+
+  registry.register({
+    name: 'forget_location',
+    description: 'Remove one named saved location.',
+    inputSchema: objectSchema({
+      name: locationNameSchema
+    }, ['name']),
+    safety: 'world_write',
+    execute: async ({ name }) => ({
+      name,
+      removed: await locationStore.remove(name)
+    })
+  })
+
+  registry.register({
+    name: 'go_to_location',
+    description: 'Travel to a named saved location such as home, mine, farm, or village.',
+    inputSchema: objectSchema({
+      name: locationNameSchema
+    }, ['name']),
+    timeoutMs: 600000,
+    safety: 'movement',
+    execute: async ({ name }, context) => {
+      const accepted = scheduler.setTask({
+        type: 'goto_location',
+        name,
+        priority: 200
+      })
+
+      if (!accepted) return false
+
+      try {
+        return await goToSavedLocation(bot, locationStore, name, {
+          tolerance: 2,
+          signal: context.signal
+        })
+      } finally {
+        clearTaskIf(
+          'goto_location',
+          (task) => task.name === name
+        )
+      }
+    }
+  })
+
+  registry.register({
+    name: 'sleep_in_bed',
+    description: 'Find a nearby bed, walk to it, and sleep. Minecraft permits sleeping only when conditions allow it.',
+    inputSchema: emptySchema,
+    timeoutMs: 120000,
+    safety: 'movement',
+    execute: async (input, context) => {
+      const accepted = scheduler.setTask({
+        type: 'sleep',
+        priority: 200
+      })
+
+      if (!accepted) return false
+
+      try {
+        return await sleepInBed(bot, {
+          signal: context.signal,
+          maxDistance: 32
+        })
+      } finally {
+        clearTaskIf('sleep')
+      }
+    }
   })
 
   registry.register({
@@ -562,6 +664,7 @@ function createSkillRegistry(options) {
     }
   })
 
+  registry.locationStore = locationStore
   return registry
 }
 
