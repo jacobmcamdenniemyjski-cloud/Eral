@@ -111,6 +111,12 @@ async function readJson(request, maxBytes = 65536) {
   }
 }
 
+function boundedNumber(value, fallback, minimum, maximum) {
+  const parsed = Number(value)
+  const safe = Number.isFinite(parsed) ? parsed : fallback
+  return Math.min(Math.max(safe, minimum), maximum)
+}
+
 function resultStatus(result) {
   if (result.ok) return 200
   if (
@@ -194,8 +200,10 @@ class EarlApiServer {
     }
 
     if (path === '/nearby') {
-      const range = Math.min(
-        Math.max(Number(url.searchParams.get('range') || 16), 1),
+      const range = boundedNumber(
+        url.searchParams.get('range'),
+        16,
+        1,
         64
       )
       const result = await this.executeSkill('scan_nearby', { range })
@@ -203,8 +211,10 @@ class EarlApiServer {
     }
 
     if (path === '/scene') {
-      const range = Math.min(
-        Math.max(Number(url.searchParams.get('range') || 16), 4),
+      const range = boundedNumber(
+        url.searchParams.get('range'),
+        16,
+        4,
         32
       )
       const result = await this.executeSkill('get_scene', { range })
@@ -217,6 +227,23 @@ class EarlApiServer {
         data: this.chatBridge.getMessages({
           after: url.searchParams.get('after'),
           limit: url.searchParams.get('limit')
+        })
+      })
+    }
+
+    if (path === '/commands/wait') {
+      const timeoutMs = boundedNumber(
+        url.searchParams.get('timeout'),
+        25,
+        0.1,
+        30
+      ) * 1000
+      return respond(response, 200, {
+        ok: true,
+        data: await this.chatBridge.waitForCommands({
+          status: 'pending',
+          limit: url.searchParams.get('limit'),
+          timeoutMs
         })
       })
     }
