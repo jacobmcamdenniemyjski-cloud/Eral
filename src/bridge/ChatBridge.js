@@ -1,3 +1,5 @@
+const { EventEmitter } = require('node:events')
+
 class ChatBridge {
   constructor(options = {}) {
     this.maxMessages = options.maxMessages || 200
@@ -6,6 +8,8 @@ class ChatBridge {
     this.commands = []
     this.nextMessageId = 1
     this.nextCommandId = 1
+    this.events = new EventEmitter()
+    this.events.setMaxListeners(50)
   }
 
   recordMessage(username, message, metadata = {}) {
@@ -18,6 +22,7 @@ class ChatBridge {
     }
     this.messages.push(entry)
     this.messages = this.messages.slice(-this.maxMessages)
+    this.events.emit('message', { ...entry })
     return { ...entry }
   }
 
@@ -38,6 +43,7 @@ class ChatBridge {
     }
     this.commands.push(entry)
     this.commands = this.commands.slice(-this.maxCommands)
+    this.events.emit('command', { ...entry })
     return { ...entry }
   }
 
@@ -57,6 +63,27 @@ class ChatBridge {
       .filter((entry) => status === 'all' || entry.status === status)
       .slice(0, limit)
       .map((entry) => ({ ...entry }))
+  }
+
+  async waitForCommands(options = {}) {
+    const timeoutMs = Math.min(
+      Math.max(Number(options.timeoutMs) || 25000, 100),
+      30000
+    )
+    const pending = this.getCommands(options)
+    if (pending.length > 0) return pending
+
+    return new Promise((resolve) => {
+      let timer
+      const finish = () => {
+        clearTimeout(timer)
+        this.events.removeListener('command', onCommand)
+        resolve(this.getCommands(options))
+      }
+      const onCommand = () => finish()
+      timer = setTimeout(finish, timeoutMs)
+      this.events.once('command', onCommand)
+    })
   }
 
   findCommand(id) {
