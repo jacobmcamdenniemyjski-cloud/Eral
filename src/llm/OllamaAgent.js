@@ -1,4 +1,5 @@
 const selectSkillTools = require('./selectSkillTools')
+const resolveDirectSkillCall = require('./resolveDirectSkillCall')
 
 function toOllamaTools(source) {
   const definitions = Array.isArray(source)
@@ -106,6 +107,7 @@ class OllamaAgent {
     this.historyLimit = options.historyLimit || 4
     this.maxSelectedTools = options.maxSelectedTools || 10
     this.maxNoToolRetries = options.maxNoToolRetries ?? 1
+    this.directSkillCalls = options.directSkillCalls ?? true
     this.conversationNumCtx = options.conversationNumCtx || 2048
     this.conversationNumPredict = options.conversationNumPredict || 128
     this.debug = options.debug ?? false
@@ -145,6 +147,45 @@ class OllamaAgent {
     }
 
     const definitions = this.skillRegistry.getToolDefinitions()
+    const directCall = this.directSkillCalls
+      ? resolveDirectSkillCall(content, username)
+      : null
+
+    if (
+      directCall &&
+      definitions.some((definition) => definition.name === directCall.name)
+    ) {
+      this.log(
+        `[llm] direct skill fast path: ${directCall.name} ` +
+        `${JSON.stringify(directCall.input)}`
+      )
+
+      const result = await this.skillRegistry.execute(
+        directCall.name,
+        directCall.input,
+        context
+      )
+      const executedTools = [{
+        name: directCall.name,
+        input: directCall.input,
+        result,
+        duplicate: false
+      }]
+
+      if (!result.ok) {
+        return { ok: false, error: result.error, tools: executedTools }
+      }
+
+      const reply = 'Done.'
+      this.remember(username, content, reply)
+      return {
+        ok: true,
+        message: reply,
+        tools: executedTools,
+        direct: true
+      }
+    }
+
     const selectedDefinitions = selectSkillTools(content, definitions, {
       maxTools: this.maxSelectedTools
     })

@@ -27,8 +27,17 @@ async function followPlayer(bot, playerName, { timeoutMs = 5000, pollMs = 200 } 
   bot.pathfinder.setMovements(movements)
 
   bot.earl = bot.earl || {}
+  const replanAfterDoor = () => {
+    const currentGoal = bot.pathfinder.goal
+    if (currentGoal) bot.pathfinder.setGoal(currentGoal, true)
+  }
+
   if (!bot.earl.doorOpener) {
-    bot.earl.doorOpener = new DoorOpener(bot)
+    bot.earl.doorOpener = new DoorOpener(bot, {
+      onOpened: replanAfterDoor
+    })
+  } else {
+    bot.earl.doorOpener.onOpened = replanAfterDoor
   }
   bot.earl.doorOpener.start()
 

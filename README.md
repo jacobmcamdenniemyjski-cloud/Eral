@@ -96,7 +96,10 @@ earl ask follow me
 earl ask make one wooden pickaxe
 ```
 
-Only messages beginning with `earl ask` use the model. Existing deterministic
+Unambiguous `earl ask` actions such as `follow me`, `gather two dirt`,
+`make a wooden pickaxe`, and `go to 10 64 20` take a deterministic fast path
+through the same validated skill registry instead of waiting for the model.
+More complex `earl ask` requests still use Ollama. Existing deterministic
 commands continue to work when Ollama is offline. The model can request only
 the schema-validated skills in Earl's registry and cannot execute JavaScript.
 Earl sends only the tools relevant to each request; ordinary conversation sends
