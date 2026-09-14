@@ -5,6 +5,7 @@ const OllamaProvider = require('../src/llm/OllamaProvider')
 const { toOllamaTools, finalizeReply } = require('../src/llm/OllamaAgent')
 const { normalizeThinkOption } = require('../src/llm/OllamaProvider')
 const selectSkillTools = require('../src/llm/selectSkillTools')
+const resolveDirectSkillCall = require('../src/llm/resolveDirectSkillCall')
 
 const silentLog = () => {}
 
@@ -291,6 +292,7 @@ test('Minecraft actions retain the tool-focused system prompt', async () => {
   const agent = new OllamaAgent({
     provider,
     skillRegistry: registry,
+    directSkillCalls: false,
     log: silentLog
   })
 
@@ -418,6 +420,58 @@ test('selector makes gathering and come-to-me requests unambiguous', () => {
   assert.deepEqual(
     selectSkillTools('come to me', definitions),
     [{ name: 'follow_player' }]
+  )
+})
+
+test('simple action prompts resolve directly without waiting for Ollama', async () => {
+  const provider = createProvider([])
+  const calls = []
+  const registry = {
+    getToolDefinitions: () => [
+      { name: 'follow_player' },
+      { name: 'gather_block' }
+    ],
+    execute: async (name, input) => {
+      calls.push({ name, input })
+      return { ok: true, skill: name, data: true }
+    }
+  }
+  const agent = new OllamaAgent({
+    provider,
+    skillRegistry: registry,
+    log: silentLog
+  })
+
+  const follow = await agent.ask('jacob48317', 'come to me')
+  const gather = await agent.ask('jacob48317', 'gather two dirt')
+
+  assert.equal(follow.direct, true)
+  assert.equal(gather.direct, true)
+  assert.equal(provider.requests.length, 0)
+  assert.deepEqual(calls, [
+    {
+      name: 'follow_player',
+      input: { player: 'jacob48317' }
+    },
+    {
+      name: 'gather_block',
+      input: { block: 'dirt', amount: 2 }
+    }
+  ])
+})
+
+test('direct skill resolver handles coordinates and common amount wording', () => {
+  assert.deepEqual(
+    resolveDirectSkillCall('please gather some oak logs', 'jacob48317'),
+    { name: 'gather_block', input: { block: 'oak logs', amount: 1 } }
+  )
+  assert.deepEqual(
+    resolveDirectSkillCall('go to -10 64 22', 'jacob48317'),
+    { name: 'go_to', input: { x: -10, y: 64, z: 22 } }
+  )
+  assert.deepEqual(
+    resolveDirectSkillCall('follow Alex_123', 'jacob48317'),
+    { name: 'follow_player', input: { player: 'Alex_123' } }
   )
 })
 

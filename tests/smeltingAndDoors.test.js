@@ -2,7 +2,9 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 const EventEmitter = require('node:events')
 const { Vec3 } = require('vec3')
+const minecraftData = require('minecraft-data')('1.21.1')
 const DoorOpener = require('../src/movement/DoorOpener')
+const followPlayer = require('../src/movement/followPlayer')
 const smeltItem = require('../src/smelting/smeltItem')
 const selectSkillTools = require('../src/llm/selectSkillTools')
 
@@ -98,12 +100,16 @@ test('door opener clicks a horizontal face and ignores iron doors', async () => 
   }
 
   let activated = null
+  let replans = 0
   bot.activateBlock = async (block, face) => {
     activated = { block, face }
     open = true
   }
 
-  const opener = new DoorOpener(bot, { radius: 1 })
+  const opener = new DoorOpener(bot, {
+    radius: 1,
+    onOpened: async () => { replans += 1 }
+  })
   opener.start()
   const result = await opener.tick()
   opener.stop()
@@ -114,6 +120,35 @@ test('door opener clicks a horizontal face and ignores iron doors', async () => 
   assert.equal(Math.abs(activated.face.x) + Math.abs(activated.face.z), 1)
   assert.equal(bot.listenerCount('physicsTick'), 0)
   assert.equal(DoorOpener.isHandOpenable(ironDoor), false)
+  assert.equal(replans, 1)
+})
+
+test('following recalculates its route after a door opens', async () => {
+  const bot = new EventEmitter()
+  const player = { position: new Vec3(8, 0, 0) }
+  const goals = []
+
+  bot.entity = { position: new Vec3(0, 0, 0) }
+  bot.players = { jacob48317: { entity: player } }
+  bot.registry = minecraftData
+  bot.inventory = { items: () => [] }
+  bot.pathfinder = {
+    goal: null,
+    setMovements() {},
+    setGoal(goal, dynamic) {
+      this.goal = goal
+      goals.push({ goal, dynamic })
+    }
+  }
+  bot.chat = () => {}
+
+  await followPlayer(bot, 'jacob48317')
+  await bot.earl.doorOpener.onOpened()
+  bot.earl.doorOpener.stop()
+
+  assert.equal(goals.length, 2)
+  assert.equal(goals[1].goal, goals[0].goal)
+  assert.equal(goals[1].dynamic, true)
 })
 
 test('LLM selects only the smelting tools for a furnace request', () => {

@@ -26,12 +26,29 @@ function horizontalFace(bot, block) {
     .minus(block.position)
 }
 
+async function waitForOpenState(bot, position, timeoutMs = 500) {
+  const deadline = Date.now() + timeoutMs
+
+  while (Date.now() < deadline) {
+    const current = bot.blockAt(position)
+    const properties = current && typeof current.getProperties === 'function'
+      ? current.getProperties()
+      : {}
+
+    if (properties.open === true) return true
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  }
+
+  return false
+}
+
 class DoorOpener {
   constructor(bot, options = {}) {
     this.bot = bot
     this.radius = options.radius || 3
     this.tickInterval = options.tickInterval || 4
     this.cooldownMs = options.cooldownMs || 1000
+    this.onOpened = options.onOpened || null
     this.running = false
     this.busy = false
     this.ticks = 0
@@ -98,6 +115,8 @@ class DoorOpener {
 
     try {
       await this.bot.activateBlock(block, horizontalFace(this.bot, block))
+      await waitForOpenState(this.bot, block.position)
+      if (this.onOpened) await this.onOpened(block)
       console.log(`Earl opened ${block.name} while following.`)
       return true
     } finally {
@@ -109,3 +128,4 @@ class DoorOpener {
 module.exports = DoorOpener
 module.exports.isHandOpenable = isHandOpenable
 module.exports.horizontalFace = horizontalFace
+module.exports.waitForOpenState = waitForOpenState
