@@ -7,6 +7,14 @@ $ApiUrl = if ($env:EARL_API_URL) {
 } else {
     "http://127.0.0.1:$ApiPort"
 }
+$HermesHome = if ($env:HERMES_HOME) {
+    $env:HERMES_HOME
+} else {
+    Join-Path $HOME ".hermes"
+}
+$SoulFile = Join-Path $HermesHome "SOUL.md"
+$SoulBackup = "$SoulFile.earl-$PID.bak"
+$HadSoul = Test-Path $SoulFile
 $EarlProcess = $null
 $StartedEarl = $false
 
@@ -21,6 +29,12 @@ Set-Location $Root
 $env:EARL_BRAIN = "hermes"
 $env:EARL_API_ENABLED = "true"
 $env:EARL_API_URL = $ApiUrl
+New-Item -ItemType Directory -Force -Path $HermesHome | Out-Null
+
+if ($HadSoul) {
+    Copy-Item $SoulFile $SoulBackup
+}
+Copy-Item "$Root/prompts/SOUL-earl.md" $SoulFile -Force
 
 try {
     try {
@@ -48,8 +62,11 @@ try {
         }
     }
 
-    $Prompt = Get-Content "$Root/prompts/SOUL-earl.md" -Raw
-    $HermesArgs = @("chat", "--yolo", "-q", $Prompt)
+    $Seed = "Start Earl companion mode. Check body health and pending commands. When idle, arm the background command listener described in HERMES.md."
+    $HermesArgs = @("chat", "-q", $Seed)
+    if ($env:EARL_HERMES_YOLO -ne "false") {
+        $HermesArgs += "--yolo"
+    }
     if ($env:EARL_HERMES_MODEL) {
         $HermesArgs += @("--model", $env:EARL_HERMES_MODEL)
     }
@@ -62,5 +79,10 @@ try {
 } finally {
     if ($StartedEarl -and $EarlProcess -and -not $EarlProcess.HasExited) {
         Stop-Process -Id $EarlProcess.Id
+    }
+    if ($HadSoul -and (Test-Path $SoulBackup)) {
+        Move-Item $SoulBackup $SoulFile -Force
+    } elseif (Test-Path $SoulFile) {
+        Remove-Item $SoulFile
     }
 }
