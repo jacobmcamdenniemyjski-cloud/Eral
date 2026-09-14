@@ -31,6 +31,8 @@ AI / Goals → Deterministic Skills → Mineflayer → Minecraft
 - `earl farm status [crop]` — Counts mature crops, growing crops, and empty farmland nearby.
 - `earl farm <crop> <amount>` — Harvests mature crops and immediately replants them.
 - `earl harvest <crop> <amount>` — Alias for `earl farm`.
+- `earl collect <amount> <crop>` — Harvests and replants the requested number of mature crops.
+- `earl collect all <crop>` — Inspects the farm, then harvests and replants every mature requested crop.
 - `earl smelt <item> <amount> [with <fuel>]` — Adds to a compatible furnace load, fuels it, and collects the finished items.
 - `earl furnace status` — Reports nearby furnace input, fuel, output, and progress.
 - `earl furnace collect` — Retrieves all finished output from the nearby furnace.
@@ -51,7 +53,7 @@ AI / Goals → Deterministic Skills → Mineflayer → Minecraft
 
 ## Structured skill registry
 
-Earl's chat commands and AI planner share the same 27 deterministic
+Earl's chat commands and AI planner share the same 28 deterministic
 skills. Each skill has a stable name, description, JSON input schema, timeout,
 and safety category. Inputs are validated with Ajv before Minecraft code runs,
 and every execution returns a structured success or error result.
@@ -149,7 +151,10 @@ earl farm status wheat
 earl farm wheat 8
 earl harvest carrots 4
 earl farm all 16
+earl collect 3 wheat
+earl collect all wheat
 earl ask harvest four wheat
+earl ask collect all wheat
 ```
 
 This batch operates existing farmland. Creating, tilling, irrigating, and

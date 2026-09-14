@@ -440,6 +440,20 @@ test('selector exposes only farming tools for a harvest request', () => {
   )
 })
 
+test('collect all wheat selects the dedicated inspect-and-farm skill', () => {
+  const definitions = [
+    { name: 'gather_block' },
+    { name: 'get_farm_status' },
+    { name: 'farm_crops' },
+    { name: 'farm_all_available' }
+  ]
+
+  assert.deepEqual(
+    selectSkillTools('collect all available wheat', definitions),
+    [{ name: 'farm_all_available' }]
+  )
+})
+
 test('simple action prompts resolve directly without waiting for Ollama', async () => {
   const provider = createProvider([])
   const calls = []
@@ -497,6 +511,14 @@ test('direct skill resolver handles coordinates and common amount wording', () =
   assert.deepEqual(
     resolveDirectSkillCall('check the farm', 'jacob48317'),
     { name: 'get_farm_status', input: { crop: 'all' } }
+  )
+  assert.deepEqual(
+    resolveDirectSkillCall('collect three wheat', 'jacob48317'),
+    { name: 'farm_crops', input: { crop: 'wheat', amount: 3 } }
+  )
+  assert.deepEqual(
+    resolveDirectSkillCall('collect all wheat', 'jacob48317'),
+    { name: 'farm_all_available', input: { crop: 'wheat' } }
   )
 })
 

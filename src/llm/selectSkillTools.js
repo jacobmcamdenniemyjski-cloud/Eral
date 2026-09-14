@@ -97,11 +97,25 @@ const FURNACE_INTENTS = [
   }
 ]
 
+const FARM_INTENTS = [
+  {
+    pattern: /\b(?:farm|harvest|replant|collect)\s+(?:everything|all(?:\s+(?:available|mature))?(?:\s+(?:of\s+)?(?:the\s+)?)?(?:wheat|carrots?|potatoes?|beetroots?|crops?))\b/i,
+    names: ['farm_all_available']
+  }
+]
+
 function selectSkillTools(prompt, definitions, options = {}) {
   const maxTools = options.maxTools || 10
   const selectedNames = new Set()
 
   for (const intent of FURNACE_INTENTS) {
+    if (!intent.pattern.test(prompt)) continue
+    return definitions
+      .filter((definition) => intent.names.includes(definition.name))
+      .slice(0, maxTools)
+  }
+
+  for (const intent of FARM_INTENTS) {
     if (!intent.pattern.test(prompt)) continue
     return definitions
       .filter((definition) => intent.names.includes(definition.name))
@@ -119,5 +133,6 @@ function selectSkillTools(prompt, definitions, options = {}) {
 }
 
 module.exports = selectSkillTools
+module.exports.FARM_INTENTS = FARM_INTENTS
 module.exports.TOOL_GROUPS = TOOL_GROUPS
 module.exports.FURNACE_INTENTS = FURNACE_INTENTS

@@ -58,6 +58,18 @@ function createBot(options = {}) {
     empty.offset(0, -1, 0)
   ))
 
+  const additionalMature = Array.from(
+    { length: options.additionalMature || 0 },
+    (value, index) => new Vec3(5 + index, 65, 0)
+  )
+  for (const position of additionalMature) {
+    world.set(key(position), createBlock('wheat', position, 7))
+    world.set(key(position.offset(0, -1, 0)), createBlock(
+      'farmland',
+      position.offset(0, -1, 0)
+    ))
+  }
+
   const bot = {
     registry: {
       blocksByName: BLOCKS,
@@ -79,9 +91,21 @@ function createBot(options = {}) {
     heldItem: null,
     findBlocks({ matching }) {
       const ids = new Set(Array.isArray(matching) ? matching : [matching])
-      return Array.from(world.values())
+      const positions = Array.from(world.values())
         .filter((block) => ids.has(block.type))
         .map((block) => block.position)
+
+      if (options.oneMaturePerScan && ids.has(BLOCKS.wheat.id)) {
+        const maturePositions = positions.filter((position) => (
+          getCropAge(world.get(key(position))) === 7
+        ))
+        const otherPositions = positions.filter((position) => (
+          getCropAge(world.get(key(position))) !== 7
+        ))
+        return [...maturePositions.slice(0, 1), ...otherPositions]
+      }
+
+      return positions
     },
     findBlock() {
       return options.container || null
@@ -93,7 +117,9 @@ function createBot(options = {}) {
       itemFilter: () => true,
       async collect(block, collectOptions) {
         bot.lastCollectOptions = collectOptions
-        world.set(key(block.position), createBlock('air', block.position))
+        if (!options.collectDoesNotBreak) {
+          world.set(key(block.position), createBlock('air', block.position))
+        }
       },
       async cancelTask() {}
     },
@@ -113,7 +139,15 @@ function createBot(options = {}) {
     }
   }
 
-  return { bot, chats, world, mature, growing, empty }
+  return {
+    bot,
+    chats,
+    world,
+    mature,
+    growing,
+    empty,
+    additionalMature
+  }
 }
 
 test('crop aliases and modern block-state ages are recognized', () => {
@@ -145,6 +179,35 @@ test('farming harvests only mature crops and replants the same block', async () 
   assert.equal(getCropAge(bot.blockAt(mature)), 0)
   assert.equal(getCropAge(bot.blockAt(growing)), 3)
   assert.equal(bot.lastCollectOptions.itemFilter({ name: 'wheat_seeds' }), false)
+})
+
+test('farming rescans after each harvest instead of stopping after one crop', async () => {
+  const { bot } = createBot({
+    additionalMature: 2,
+    oneMaturePerScan: true
+  })
+  const result = await farmCrops(bot, 'wheat', 3)
+
+  assert.equal(result.harvested, 3)
+  assert.equal(result.replanted, 3)
+  assert.equal(result.complete, true)
+})
+
+test('farm all inspects status and harvests every mature requested crop', async () => {
+  const { bot } = createBot({ additionalMature: 2 })
+  const result = await farmCrops.farmAllAvailable(bot, 'wheat')
+
+  assert.equal(result.availableAtStart, 3)
+  assert.equal(result.harvested, 3)
+  assert.equal(result.replanted, 3)
+  assert.equal(result.farmStatus.crops[0].mature, 3)
+})
+
+test('a collection task that does not break the crop is not counted', async () => {
+  const { bot } = createBot({ collectDoesNotBreak: true })
+  const result = await farmCrops(bot, 'wheat', 1)
+
+  assert.equal(result, false)
 })
 
 test('a harvested crop reports a replant failure when no seed exists', async () => {
