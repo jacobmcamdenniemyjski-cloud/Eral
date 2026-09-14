@@ -135,3 +135,38 @@ test('body API starts and reports background tasks', async () => {
     await server.stop()
   }
 })
+
+
+test('body API long-polls until a Minecraft command arrives', async () => {
+  const bot = { entity: {}, username: 'earl', chat: () => {} }
+  const runtime = createRuntime()
+  const chatBridge = new ChatBridge()
+  const taskManager = new TaskManager({
+    skillRegistry: runtime.skillRegistry,
+    cancelActiveWork: runtime.cancelActiveWork
+  })
+  const server = new EarlApiServer({
+    bot,
+    runtime,
+    chatBridge,
+    taskManager,
+    port: 0
+  })
+
+  try {
+    const address = await server.start()
+    const base = `http://127.0.0.1:${address.port}`
+    const waiting = fetch(`${base}/commands/wait?timeout=1`)
+      .then((response) => response.json())
+
+    setTimeout(() => {
+      chatBridge.enqueue('jacob', 'make a stone pickaxe')
+    }, 25)
+
+    const response = await waiting
+    assert.equal(response.ok, true)
+    assert.equal(response.data[0].command, 'make a stone pickaxe')
+  } finally {
+    await server.stop()
+  }
+})
