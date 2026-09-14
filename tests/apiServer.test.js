@@ -3,6 +3,7 @@ const assert = require('node:assert/strict')
 const ChatBridge = require('../src/bridge/ChatBridge')
 const TaskManager = require('../src/bridge/TaskManager')
 const EarlApiServer = require('../src/api/EarlApiServer')
+const LearnedProcedureStore = require('../src/learning/LearnedProcedureStore')
 
 function createRuntime() {
   const skillRegistry = {
@@ -11,6 +12,13 @@ function createRuntime() {
       description: 'status',
       inputSchema: { type: 'object' }
     }],
+    validateInput: (name) => name === 'get_status'
+      ? { ok: true, skill: name }
+      : {
+          ok: false,
+          skill: name,
+          error: { code: 'UNKNOWN_SKILL', message: `Unknown skill: ${name}` }
+        },
     execute: async (name, input) => {
       if (name === 'unknown') {
         return {
@@ -79,6 +87,13 @@ test('body API authenticates tool access and executes skills', async () => {
     })).json()
     assert.equal(executed.ok, true)
     assert.equal(executed.data.name, 'get_status')
+
+    const cancelled = await (await fetch(`${base}/cancel`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer secret' }
+    })).json()
+    assert.equal(cancelled.ok, true)
+    assert.equal(cancelled.data.stopped, true)
 
     const chatted = await (await fetch(`${base}/action/chat`, {
       method: 'POST',
@@ -166,6 +181,68 @@ test('body API long-polls until a Minecraft command arrives', async () => {
     const response = await waiting
     assert.equal(response.ok, true)
     assert.equal(response.data[0].command, 'make a stone pickaxe')
+  } finally {
+    await server.stop()
+  }
+})
+
+
+test('body API stages, approves, and executes validated procedures', async () => {
+  const bot = { entity: {}, username: 'earl', chat: () => {} }
+  const runtime = createRuntime()
+  const chatBridge = new ChatBridge()
+  const taskManager = new TaskManager({
+    skillRegistry: runtime.skillRegistry,
+    cancelActiveWork: runtime.cancelActiveWork
+  })
+  const procedureStore = new LearnedProcedureStore({
+    skillRegistry: runtime.skillRegistry
+  })
+  const server = new EarlApiServer({
+    bot,
+    runtime,
+    chatBridge,
+    taskManager,
+    procedureStore,
+    port: 0
+  })
+
+  try {
+    const address = await server.start()
+    const base = `http://127.0.0.1:${address.port}`
+    const definition = {
+      name: 'check_status',
+      description: 'Check Earl status.',
+      steps: [{ skill: 'get_status', input: {} }]
+    }
+
+    const stagedResponse = await fetch(`${base}/procedures/stage`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(definition)
+    })
+    const staged = await stagedResponse.json()
+    assert.equal(stagedResponse.status, 201)
+    assert.equal(staged.data.status, 'pending')
+
+    const blocked = await fetch(
+      `${base}/procedures/${staged.data.id}/execute`,
+      { method: 'POST' }
+    )
+    assert.equal(blocked.status, 403)
+
+    const approved = await (await fetch(
+      `${base}/procedures/${staged.data.id}/approve`,
+      { method: 'POST' }
+    )).json()
+    assert.equal(approved.data.status, 'approved')
+
+    const executed = await (await fetch(
+      `${base}/procedures/${staged.data.id}/execute`,
+      { method: 'POST' }
+    )).json()
+    assert.equal(executed.ok, true)
+    assert.equal(executed.data.completedSteps, 1)
   } finally {
     await server.stop()
   }
