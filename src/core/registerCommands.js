@@ -208,6 +208,14 @@ function registerCommands(bot, scheduler, router) {
     return runSkill('smelt_item', input, context)
   }
 
+  async function handleFurnaceStatus(args, context) {
+    return runSkill('get_furnace_status', {}, context)
+  }
+
+  async function handleFurnaceCollect(args, context) {
+    return runSkill('collect_furnace_output', {}, context)
+  }
+
   async function handleStore(args, context) {
     const request = parseItemRequest(bot, args, { kind: 'item' })
     if (!request) return bot.chat('Usage: store <item> <amount>')
@@ -522,6 +530,16 @@ function registerCommands(bot, scheduler, router) {
     { verb: 'gather', skill: 'gather_block', handler: handleGather },
     { verb: 'craft', skill: 'craft_item', handler: handleCraft },
     { verb: 'make', skill: 'make_item', handler: handleMake },
+    {
+      verb: 'furnace status',
+      skill: 'get_furnace_status',
+      handler: handleFurnaceStatus
+    },
+    {
+      verb: 'furnace collect',
+      skill: 'collect_furnace_output',
+      handler: handleFurnaceCollect
+    },
     { verb: 'smelt', skill: 'smelt_item', handler: handleSmelt },
     { verb: 'store', skill: 'store_item', handler: handleStore },
     { verb: 'take', skill: 'take_item', handler: handleTake },

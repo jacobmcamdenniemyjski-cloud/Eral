@@ -95,6 +95,38 @@ function resolveDirectSkillCall(prompt, username) {
     return { name: 'stop_all', input: {} }
   }
 
+  if (
+    /^(?:furnace status|inspect (?:the )?furnace|check (?:the )?furnace|what(?:'s| is) (?:in|inside) (?:the )?furnace)$/.test(text)
+  ) {
+    return { name: 'get_furnace_status', input: {} }
+  }
+
+  if (
+    /^(?:furnace collect|collect|take|retrieve)(?: (?:the|all))? (?:furnace output|output from (?:the )?furnace|smelted items?|finished output)$/.test(text)
+  ) {
+    return { name: 'collect_furnace_output', input: {} }
+  }
+
+  const smeltMatch = text.match(/^(?:smelt|refine)\s+(.+)$/)
+  if (smeltMatch) {
+    const parts = smeltMatch[1].split(/\s+with\s+/)
+    if (parts.length <= 2) {
+      const input = parseAmountAndResource(parts[0])
+      const fuel = parts[1] ? parseAmountAndResource(parts[1]) : null
+
+      if (input && (!parts[1] || fuel)) {
+        return {
+          name: 'smelt_item',
+          input: {
+            item: input.resource,
+            amount: input.amount,
+            ...(fuel ? { fuel: fuel.resource } : {})
+          }
+        }
+      }
+    }
+  }
+
   const coordinates = text.match(
     /^(?:go to|goto|move to|walk to)\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)$/
   )

@@ -7,6 +7,7 @@ const DoorOpener = require('../src/movement/DoorOpener')
 const followPlayer = require('../src/movement/followPlayer')
 const smeltItem = require('../src/smelting/smeltItem')
 const selectSkillTools = require('../src/llm/selectSkillTools')
+const resolveDirectSkillCall = require('../src/llm/resolveDirectSkillCall')
 
 test('smelting uses Mineflayer furnace operations and collects output', async () => {
   const furnaceBlock = { name: 'furnace', position: new Vec3(2, 0, 0) }
@@ -54,12 +55,137 @@ test('smelting uses Mineflayer furnace operations and collects output', async ()
   assert.deepEqual(fuelPut, [11, 0, 1])
   assert.deepEqual(result, {
     input: 'raw_iron',
+    added: 3,
+    existingInput: 0,
     output: 'iron_ingot',
     count: 3,
     fuel: 'coal',
-    fuelUsed: 1
+    fuelAdded: 1,
+    collectedBefore: null
   })
   assert.equal(closed, true)
+})
+
+test('smelting adds matching input, reuses fuel, and collects old output', async () => {
+  const furnaceBlock = { name: 'furnace', position: new Vec3(2, 0, 0) }
+  const input = {
+    name: 'raw_iron', type: 10, metadata: 0, count: 3, stackSize: 64
+  }
+  let inputSlot = {
+    name: 'raw_iron', type: 10, metadata: 0, count: 2, stackSize: 64
+  }
+  const fuelSlot = { name: 'coal', type: 11, metadata: 0, count: 1 }
+  let output = { name: 'iron_ingot', count: 1 }
+  const furnace = new EventEmitter()
+  let inputPut = null
+  let fuelPut = null
+
+  furnace.fuelSeconds = 0
+  furnace.inputItem = () => inputSlot
+  furnace.fuelItem = () => fuelSlot
+  furnace.outputItem = () => output
+  furnace.putInput = async (...args) => {
+    inputPut = args
+    inputSlot = { ...inputSlot, count: 5 }
+    setImmediate(() => {
+      inputSlot = null
+      output = { name: 'iron_ingot', count: 5 }
+      furnace.emit('update')
+    })
+  }
+  furnace.putFuel = async (...args) => { fuelPut = args }
+  furnace.takeOutput = async () => {
+    const taken = output
+    output = null
+    return taken
+  }
+  furnace.close = () => {}
+
+  const bot = {
+    registry: { blocksByName: { furnace: { id: 61 } } },
+    inventory: { items: () => [input] },
+    findBlock: () => furnaceBlock,
+    blockAt: () => furnaceBlock,
+    pathfinder: { goto: async () => {} },
+    openFurnace: async () => furnace,
+    chat: () => {}
+  }
+
+  const result = await smeltItem(bot, 'raw_iron', 3)
+
+  assert.deepEqual(inputPut, [10, 0, 3])
+  assert.equal(fuelPut, null)
+  assert.equal(result.existingInput, 2)
+  assert.equal(result.added, 3)
+  assert.equal(result.count, 5)
+  assert.equal(result.fuelAdded, 0)
+  assert.deepEqual(result.collectedBefore, { name: 'iron_ingot', count: 1 })
+})
+
+test('smelting refuses to mix a different item into an occupied furnace', async () => {
+  const furnaceBlock = { name: 'furnace', position: new Vec3(2, 0, 0) }
+  let closed = false
+  const furnace = {
+    inputItem: () => ({ name: 'raw_gold', metadata: 0, count: 2 }),
+    fuelItem: () => ({ name: 'coal', count: 1 }),
+    outputItem: () => null,
+    close: () => { closed = true }
+  }
+  const bot = {
+    registry: { blocksByName: { furnace: { id: 61 } } },
+    inventory: {
+      items: () => [{ name: 'raw_iron', type: 10, metadata: 0, count: 3 }]
+    },
+    findBlock: () => furnaceBlock,
+    blockAt: () => furnaceBlock,
+    pathfinder: { goto: async () => {} },
+    openFurnace: async () => furnace,
+    chat: () => {}
+  }
+
+  await assert.rejects(
+    smeltItem(bot, 'raw_iron', 3),
+    /already contains raw_gold/
+  )
+  assert.equal(closed, true)
+})
+
+test('furnace status and output collection use existing Mineflayer slots', async () => {
+  const furnaceBlock = { name: 'furnace', position: new Vec3(2, 0, 0) }
+  let output = { name: 'iron_ingot', count: 4 }
+  let closed = 0
+  const chats = []
+  const furnace = {
+    progress: 0.5,
+    fuelSeconds: 42,
+    inputItem: () => ({ name: 'raw_iron', count: 3 }),
+    fuelItem: () => ({ name: 'coal', count: 1 }),
+    outputItem: () => output,
+    takeOutput: async () => {
+      const taken = output
+      output = null
+      return taken
+    },
+    close: () => { closed += 1 }
+  }
+  const bot = {
+    registry: { blocksByName: { furnace: { id: 61 } } },
+    findBlock: () => furnaceBlock,
+    blockAt: () => furnaceBlock,
+    pathfinder: { goto: async () => {} },
+    openFurnace: async () => furnace,
+    chat: (message) => chats.push(message)
+  }
+
+  const status = await smeltItem.getFurnaceStatus(bot)
+  const collected = await smeltItem.collectFurnaceOutput(bot)
+
+  assert.deepEqual(status.output, { name: 'iron_ingot', count: 4 })
+  assert.equal(status.progressPercent, 50)
+  assert.deepEqual(collected.collected, { name: 'iron_ingot', count: 4 })
+  assert.equal(output, null)
+  assert.equal(closed, 2)
+  assert.ok(chats.some((message) => /progress 50%/i.test(message)))
 })
 
 test('fuel selection supports explicit wood and rejects non-fuel items', () => {
@@ -151,15 +277,44 @@ test('following recalculates its route after a door opens', async () => {
   assert.equal(goals[1].dynamic, true)
 })
 
-test('LLM selects only the smelting tools for a furnace request', () => {
+test('LLM selects one focused furnace tool for each request', () => {
   const definitions = [
     { name: 'smelt_item' },
     { name: 'get_inventory' },
-    { name: 'make_item' }
+    { name: 'make_item' },
+    { name: 'get_furnace_status' },
+    { name: 'collect_furnace_output' },
+    { name: 'gather_block' }
   ]
 
   assert.deepEqual(
     selectSkillTools('smelt three raw iron in the furnace', definitions),
-    [{ name: 'smelt_item' }, { name: 'get_inventory' }]
+    [{ name: 'smelt_item' }]
+  )
+  assert.deepEqual(
+    selectSkillTools('what is in the furnace', definitions),
+    [{ name: 'get_furnace_status' }]
+  )
+  assert.deepEqual(
+    selectSkillTools('collect the furnace output', definitions),
+    [{ name: 'collect_furnace_output' }]
+  )
+})
+
+test('simple furnace requests use the deterministic action fast path', () => {
+  assert.deepEqual(
+    resolveDirectSkillCall('furnace status', 'jacob48317'),
+    { name: 'get_furnace_status', input: {} }
+  )
+  assert.deepEqual(
+    resolveDirectSkillCall('collect the furnace output', 'jacob48317'),
+    { name: 'collect_furnace_output', input: {} }
+  )
+  assert.deepEqual(
+    resolveDirectSkillCall('smelt 3 raw iron with coal', 'jacob48317'),
+    {
+      name: 'smelt_item',
+      input: { item: 'raw iron', amount: 3, fuel: 'coal' }
+    }
   )
 })
