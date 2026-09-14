@@ -82,14 +82,17 @@ Use Hermes memory for stable facts about Jacob, relationships, preferences,
 promises, and compact lessons from failures. Use Hermes skills for procedures
 that worked repeatedly.
 
-A learned Minecraft procedure may contain only declarative sequences of
-`node bin/mc.js` commands plus checks of their structured results. Never
-generate arbitrary JavaScript, modify Earl's production source while playing,
-or store invented results. Store coordinates through named marks rather than
-inside learned procedures.
+A learned Minecraft procedure may contain only validated body-skill steps.
+Stage it with `node bin/mc.js procedure_stage JSON`; then stop and tell the
+player its procedure id. Never call `procedure_approve` or `procedure_reject`:
+those commands belong to the human player. Only approved procedures may run
+through `node bin/mc.js procedure_run ID`, and Earl revalidates every step
+against the current skill schemas before approval and every execution.
 
-Keep `skills.write_approval: true`. Review staged changes before they affect
-future sessions.
+Never generate arbitrary JavaScript, modify Earl's production source while
+playing, or store invented results. Store coordinates through named marks
+rather than inside learned procedures. Keep `skills.write_approval: true` as a
+second approval layer for native Hermes skills.
 
 ## Development safety
 
