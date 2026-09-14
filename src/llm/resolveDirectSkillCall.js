@@ -106,9 +106,9 @@ function resolveDirectSkillCall(prompt, username) {
   }
 
   const markMatch = text.match(
-    /^(?:mark|save)(?: this| here| this location)?(?: as)?\s+(.+)$/
+    /^(?:mark|save)(?: this location| this place| this| here)?(?: as)?\s+(.+)$/
   ) || text.match(
-    /^remember(?: this| here| this location)? as\s+(.+)$/
+    /^remember(?: this location| this place| this| here)? as\s+(.+)$/
   )
   if (markMatch) {
     return { name: 'mark_location', input: { name: markMatch[1] } }
