@@ -182,12 +182,23 @@ function registerCommands(bot, scheduler, router) {
   }
 
   async function handleFarm(args, context) {
+    const allMatch = args.trim().match(
+      /^all(?:\s+(?:available|mature))?(?:\s+(?:of\s+)?(?:the\s+)?)?(.*)$/i
+    )
+    const allCrop = allMatch
+      ? resolveCropName(allMatch[1].trim() || 'all')
+      : null
+
+    if (allCrop) {
+      return runSkill('farm_all_available', { crop: allCrop }, context)
+    }
+
     const request = parseItemRequest(bot, args, { kind: 'either' })
     const crop = request && resolveCropName(request.name)
 
     if (!request || !crop) {
       return bot.chat(
-        'Usage: farm <wheat|carrots|potatoes|beetroots|all> <amount>'
+        'Usage: farm <crop> <amount>, or collect all <crop>'
       )
     }
 
@@ -585,8 +596,24 @@ function registerCommands(bot, scheduler, router) {
       handler: handleFarmStatus,
       passive: true
     },
-    { verb: 'farm', skill: 'farm_crops', handler: handleFarm },
-    { verb: 'harvest', skill: 'farm_crops', handler: handleFarm },
+    {
+      verb: 'farm',
+      skill: 'farm_crops',
+      handler: handleFarm,
+      timeoutMs: queueTimeoutFor('farm_all_available')
+    },
+    {
+      verb: 'harvest',
+      skill: 'farm_crops',
+      handler: handleFarm,
+      timeoutMs: queueTimeoutFor('farm_all_available')
+    },
+    {
+      verb: 'collect',
+      skill: 'farm_crops',
+      handler: handleFarm,
+      timeoutMs: queueTimeoutFor('farm_all_available')
+    },
     {
       verb: 'furnace status',
       skill: 'get_furnace_status',

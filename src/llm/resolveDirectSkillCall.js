@@ -129,7 +129,15 @@ function resolveDirectSkillCall(prompt, username) {
     }
   }
 
-  const farmMatch = text.match(/^(?:farm|harvest|replant)\s+(.+)$/)
+  const allFarmMatch = text.match(
+    /^(?:farm|harvest|replant|collect)\s+all(?:\s+(?:available|mature))?(?:\s+(?:of\s+)?(?:the\s+)?)?(.*)$/
+  )
+  if (allFarmMatch) {
+    const crop = resolveCropName(allFarmMatch[1].trim() || 'all')
+    if (crop) return { name: 'farm_all_available', input: { crop } }
+  }
+
+  const farmMatch = text.match(/^(?:farm|harvest|replant|collect)\s+(.+)$/)
   if (farmMatch) {
     const request = parseAmountAndResource(farmMatch[1])
     const crop = request && resolveCropName(request.resource)

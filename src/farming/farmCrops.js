@@ -1,6 +1,7 @@
 const { goals } = require('mineflayer-pathfinder')
 const withTimeout = require('../scheduler/withTimeout')
 const findNearbyContainer = require('../inventory/findNearbyContainer')
+const getFarmStatus = require('./getFarmStatus')
 const {
   getCropDefinitions,
   isMatureCrop,
@@ -76,6 +77,10 @@ function seedPreservingFilter(bot, seedName) {
   }
 }
 
+function positionKey(position) {
+  return `${position.x},${position.y},${position.z}`
+}
+
 async function replantCrop(bot, position, definition, signal) {
   throwIfCancelled(signal)
 
@@ -129,7 +134,7 @@ async function farmCrops(
   throwIfCancelled(signal)
 
   const definitions = getCropDefinitions(crop)
-  const matureCrops = findMatureCrops(
+  let matureCrops = findMatureCrops(
     bot,
     definitions,
     amount,
@@ -161,13 +166,28 @@ async function farmCrops(
   let harvested = 0
   let replanted = 0
   const failures = []
+  const failedPositions = new Set()
 
-  for (const candidate of matureCrops) {
-    if (harvested >= amount) break
+  while (harvested < amount) {
     throwIfCancelled(signal)
 
+    const candidate = matureCrops.find((entry) => (
+      !failedPositions.has(positionKey(entry.position))
+    ))
+
+    if (!candidate) break
+
     const block = bot.blockAt(candidate.position)
-    if (!isMatureCrop(block, candidate.definition)) continue
+    if (!isMatureCrop(block, candidate.definition)) {
+      failedPositions.add(positionKey(candidate.position))
+      matureCrops = findMatureCrops(
+        bot,
+        definitions,
+        amount - harvested,
+        maxDistance
+      )
+      continue
+    }
 
     try {
       await withTimeout(
@@ -181,6 +201,11 @@ async function farmCrops(
       )
 
       throwIfCancelled(signal)
+      const afterHarvest = bot.blockAt(candidate.position)
+      if (isMatureCrop(afterHarvest, candidate.definition)) {
+        throw new Error('the crop was not broken by the collection task')
+      }
+
       harvested += 1
 
       if (await replantCrop(
@@ -202,12 +227,22 @@ async function farmCrops(
       )
     } catch (error) {
       if (signal && signal.aborted) throw cancellationError(signal)
+      failedPositions.add(positionKey(candidate.position))
       failures.push(error.message)
       console.log(
         `Skipping crop at ${candidate.position}: ${error.message}`
       )
       await cancelFarming(bot)
     }
+
+    // Re-scan after every crop. Mineflayer can reveal more field blocks as Earl
+    // walks, and a saved block list becomes stale after harvesting/replanting.
+    matureCrops = findMatureCrops(
+      bot,
+      definitions,
+      amount - harvested,
+      maxDistance
+    )
   }
 
   if (harvested === 0) {
@@ -230,6 +265,42 @@ async function farmCrops(
   }
 }
 
+async function farmAllAvailable(bot, cropName = 'all', options = {}) {
+  const { signal, maxDistance = 16 } = options
+  const crop = resolveCropName(cropName)
+
+  if (!crop) {
+    bot.chat(`I do not recognize the crop ${cropName}.`)
+    return false
+  }
+
+  throwIfCancelled(signal)
+  const status = getFarmStatus(bot, crop, maxDistance)
+  const mature = status.crops.reduce(
+    (total, entry) => total + entry.mature,
+    0
+  )
+
+  console.log(`[farm] found ${mature} mature ${crop} within ${maxDistance} blocks.`)
+
+  if (mature === 0) {
+    bot.chat(
+      crop === 'all'
+        ? 'I cannot find any mature crops nearby.'
+        : `I cannot find mature ${crop} nearby.`
+    )
+    return false
+  }
+
+  const result = await farmCrops(bot, crop, mature, options)
+  return result && {
+    ...result,
+    availableAtStart: mature,
+    farmStatus: status
+  }
+}
+
 module.exports = farmCrops
+module.exports.farmAllAvailable = farmAllAvailable
 module.exports.findMatureCrops = findMatureCrops
 module.exports.replantCrop = replantCrop

@@ -289,6 +289,21 @@ function createSkillRegistry(options) {
   })
 
   registry.register({
+    name: 'farm_all_available',
+    description: 'Inspect the nearby farm, count every currently mature requested crop, then harvest and replant all of them. Use this for collect all, harvest all, or farm everything requests.',
+    inputSchema: objectSchema({
+      crop: cropNameSchema
+    }, ['crop']),
+    timeoutMs: 1800000,
+    safety: 'world_write',
+    execute: async ({ crop }, context) => farmCrops.farmAllAvailable(
+      bot,
+      crop,
+      { signal: context.signal, maxDistance: 16 }
+    )
+  })
+
+  registry.register({
     name: 'get_furnace_status',
     description: 'Inspect the nearest furnace and report its input, fuel, output, progress, and remaining burn time.',
     inputSchema: emptySchema,
