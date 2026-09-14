@@ -1,3 +1,4 @@
+const path = require('node:path')
 const createBot = require('./core/createBot')
 const CommandRouter = require('./core/CommandRouter')
 const registerCommands = require('./core/registerCommands')
@@ -9,6 +10,7 @@ const ChatBridge = require('./bridge/ChatBridge')
 const TaskManager = require('./bridge/TaskManager')
 const DeathTracker = require('./bridge/DeathTracker')
 const EarlApiServer = require('./api/EarlApiServer')
+const LearnedProcedureStore = require('./learning/LearnedProcedureStore')
 
 function envEnabled(value) {
   return ['1', 'true', 'yes', 'on'].includes(
@@ -40,7 +42,10 @@ async function main() {
   const bot = await createBot()
   const scheduler = new TaskScheduler()
   const router = new CommandRouter(bot)
-  const chatBridge = new ChatBridge()
+  const dataDir = process.env.EARL_DATA_DIR || path.join(process.cwd(), 'data')
+  const chatBridge = new ChatBridge({
+    filePath: process.env.EARL_BRIDGE_FILE || path.join(dataDir, 'bridge.json')
+  })
   const deathTracker = new DeathTracker(bot)
 
   bot.on('chat', (username, message) => {
@@ -59,9 +64,16 @@ async function main() {
   })
   const taskManager = new TaskManager({
     skillRegistry: runtime.skillRegistry,
-    cancelActiveWork: runtime.cancelActiveWork
+    cancelActiveWork: runtime.cancelActiveWork,
+    filePath: process.env.EARL_TASKS_FILE || path.join(dataDir, 'tasks.json')
+  })
+  const procedureStore = new LearnedProcedureStore({
+    skillRegistry: runtime.skillRegistry,
+    filePath: process.env.EARL_PROCEDURES_FILE ||
+      path.join(dataDir, 'procedures.json')
   })
   runtime.taskManager = taskManager
+  runtime.procedureStore = procedureStore
 
   let llmAgent = null
   if (brainMode === 'ollama') {
@@ -101,6 +113,7 @@ async function main() {
       runtime,
       chatBridge,
       taskManager,
+      procedureStore,
       deathTracker,
       brainMode,
       host,
