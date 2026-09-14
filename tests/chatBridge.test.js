@@ -1,5 +1,8 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
+const fs = require('node:fs')
+const os = require('node:os')
+const path = require('node:path')
 const ChatBridge = require('../src/bridge/ChatBridge')
 
 test('chat bridge records messages with cursor-based reads', () => {
@@ -55,4 +58,32 @@ test('waitForCommands returns immediately when work is pending', async () => {
 
   assert.equal(commands[0].command, 'follow me')
   assert.ok(Date.now() - started < 100)
+})
+
+
+test('chat bridge persists messages and recovers claimed requests', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'earl-chat-'))
+  const filePath = path.join(directory, 'bridge.json')
+  try {
+    const first = new ChatBridge({ filePath })
+    first.recordMessage('Jacob', 'remember this')
+    const queued = first.enqueue('Jacob', 'build a cabin')
+    first.claimCommand(queued.id)
+
+    const restarted = new ChatBridge({ filePath })
+    const recovered = restarted.getCommands({ status: 'pending' })[0]
+    assert.equal(recovered.id, queued.id)
+    assert.equal(recovered.recoveryCount, 1)
+    assert.equal(restarted.getMessages()[0].message, 'remember this')
+    assert.equal(restarted.summary().recoveredCommands, 1)
+
+    restarted.completeCommand(queued.id, 'done')
+    const loadedAgain = new ChatBridge({ filePath })
+    assert.equal(
+      loadedAgain.getCommands({ status: 'completed' })[0].result,
+      'done'
+    )
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true })
+  }
 })
