@@ -79,7 +79,12 @@ const locationNameSchema = {
   type: 'string',
   minLength: 1,
   maxLength: 48,
-  pattern: '^[a-zA-Z0-9 _-]+
+  pattern: '^[a-zA-Z0-9 _-]+$',
+  description: 'Short saved location name such as home, mine, or village.'
+}
+
+const cropNameSchema = {
+  type: 'string',
   enum: ['wheat', 'carrots', 'potatoes', 'beetroots', 'all'],
   description: 'Supported crop name, or all for every supported crop.'
 }
