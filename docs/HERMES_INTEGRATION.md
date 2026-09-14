@@ -183,6 +183,10 @@ The body API listens on `127.0.0.1:3001` by default.
 | `EARL_API_PORT` | `3001` | API port |
 | `EARL_API_URL` | derived | URL used by `bin/mc.js` |
 | `EARL_API_TOKEN` | empty locally | Bearer token |
+| `EARL_DATA_DIR` | `./data` | Durable bridge/task/procedure state |
+| `EARL_BRIDGE_FILE` | under data dir | Optional queue-state override |
+| `EARL_TASKS_FILE` | under data dir | Optional task-history override |
+| `EARL_PROCEDURES_FILE` | under data dir | Optional procedure-store override |
 | `EARL_MC_HOST` | `localhost` | Minecraft host |
 | `EARL_MC_PORT` | `25565` | Minecraft port |
 | `EARL_MC_USERNAME` | `earl` | Bot username |
@@ -203,11 +207,39 @@ procedures may contain declarative `node bin/mc.js` sequences only. The agent
 must not generate JavaScript, modify Earl's source while playing, or bypass the
 skill registry. Named locations remain Earl-owned data.
 
-Review staged procedures with:
+Stage and review Earl body procedures with:
 
 ```text
-/skills pending
-/skills diff <id>
-/skills approve <id>
-/skills reject <id>
+node bin/mc.js procedure_stage "{\"name\":\"gather_wood\",\"steps\":[{\"skill\":\"gather_block\",\"input\":{\"block\":\"oak_log\",\"amount\":4}}]}"
+node bin/mc.js procedures pending
+node bin/mc.js procedure_approve 1
+node bin/mc.js procedure_run 1
+node bin/mc.js procedure_reject 2 reason
 ```
+
+Hermes may stage a procedure, but only the player may approve or reject it.
+Earl stores no code: each step must name a registered skill and pass its current
+JSON schema at staging, approval, and execution.
+
+## Restart recovery
+
+Player messages, queued requests, task history, and learned procedures persist
+under `data/`. On restart, a request that Hermes had claimed returns to
+`pending`. An action that was `starting` or `running` is recorded as
+`interrupted`; Earl deliberately does not replay physical actions because the
+Minecraft world may have changed while it was offline.
+
+## Survival soak test
+
+After the normal gameplay acceptance test, leave Minecraft and Earl running and
+start a monitored survival test in another terminal:
+
+```text
+npm run soak -- --minutes 60 --interval 30
+```
+
+The runner checks health, status, inventory, current task, and death history. It
+writes `data/survival-soak-latest.json` and fails if the API disconnects, a
+sample errors, or Earl records a new death. Change the duration and sample
+interval as needed; for example, use `--minutes 240 --interval 60` for a
+four-hour test.
