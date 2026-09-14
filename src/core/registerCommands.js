@@ -91,6 +91,14 @@ function registerCommands(bot, scheduler, router) {
       }
     }
 
+    if (bot.isSleeping && typeof bot.wake === 'function') {
+      try {
+        await bot.wake()
+      } catch (error) {
+        console.error(`Wake cancellation failed: ${error.message}`)
+      }
+    }
+
     scheduler.clearTask()
     await new Promise((resolve) => setImmediate(resolve))
   }
@@ -431,6 +439,72 @@ function registerCommands(bot, scheduler, router) {
     return runSkill('go_to', { x, y, z }, context)
   }
 
+  async function handleMark(args, context) {
+    const name = args.trim()
+    if (!name) return bot.chat('Usage: mark <location name>')
+
+    const location = await runSkill('mark_location', { name }, context)
+    if (location) {
+      bot.chat(
+        `Saved ${location.name} at ${location.x}, ${location.y}, ${location.z}.`
+      )
+    }
+    return location
+  }
+
+  async function handleLocations(args, context) {
+    const locations = await runSkill('get_saved_locations', {}, context)
+    if (!locations) return false
+
+    console.log('Saved locations:', locations)
+    if (locations.length === 0) {
+      bot.chat('No saved locations yet.')
+    } else {
+      bot.chat(
+        `Saved locations: ${locations.map((location) => location.name).join(', ')}.`
+      )
+    }
+    return locations
+  }
+
+  async function handleForget(args, context) {
+    const name = args.trim()
+    if (!name) return bot.chat('Usage: forget <location name>')
+
+    const result = await runSkill('forget_location', { name }, context)
+    if (result) {
+      bot.chat(
+        result.removed
+          ? `Forgot ${name}.`
+          : `No saved location named "${name}".`
+      )
+    }
+    return result
+  }
+
+  async function handleGoLocation(args, context) {
+    const name = args.trim()
+    if (!name) return bot.chat('Usage: go <location name>')
+
+    const location = await runSkill('go_to_location', { name }, context)
+    if (location) bot.chat(`Arrived at ${location.name}.`)
+    return location
+  }
+
+  async function handleSleep(args, context) {
+    if (args.trim()) return bot.chat('Usage: sleep')
+
+    const result = await runSkill('sleep_in_bed', {}, context)
+    if (result) {
+      bot.chat(
+        result.alreadySleeping
+          ? 'I am already sleeping.'
+          : 'Good night.'
+      )
+    }
+    return result
+  }
+
   async function handleAttack(args, context) {
     const mobName = args.trim().toLowerCase()
     if (!mobName) return bot.chat('Usage: attack <hostile_mob>')
@@ -630,6 +704,16 @@ function registerCommands(bot, scheduler, router) {
     { verb: 'equip', skill: 'equip_item', handler: handleEquip },
     { verb: 'place', skill: 'place_block', handler: handlePlace },
     { verb: 'goto', skill: 'go_to', handler: handleGoto },
+    { verb: 'mark', skill: 'mark_location', handler: handleMark },
+    {
+      verb: 'locations',
+      skill: 'get_saved_locations',
+      handler: handleLocations,
+      passive: true
+    },
+    { verb: 'forget', skill: 'forget_location', handler: handleForget },
+    { verb: 'go', skill: 'go_to_location', handler: handleGoLocation },
+    { verb: 'sleep', skill: 'sleep_in_bed', handler: handleSleep },
     { verb: 'attack', skill: 'attack_hostile', handler: handleAttack },
     { verb: 'combat', skill: 'get_combat_status', handler: handleCombat, passive: true },
     { verb: 'stop', skill: 'stop_all', handler: handleStop },
@@ -720,6 +804,7 @@ function registerCommands(bot, scheduler, router) {
     skillRegistry,
     commandQueue,
     combatReflex,
+    locationStore: skillRegistry.locationStore,
     cancelActiveWork
   }
 
