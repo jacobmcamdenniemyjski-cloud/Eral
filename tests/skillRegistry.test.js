@@ -144,25 +144,44 @@ test('Earl exposes every current capability through structured skills', () => {
     setMode: () => true,
     suppress: () => {}
   }
+  const deathTracker = {
+    list: async () => [],
+    returnToLatest: async () => null
+  }
   const registry = createSkillRegistry({
     bot: {},
     scheduler,
-    combatReflex
+    combatReflex,
+    deathTracker
   })
 
-  assert.equal(registry.list().length, 33)
-  assert.ok(registry.get('get_saved_locations'))
-  assert.ok(registry.get('mark_location'))
-  assert.ok(registry.get('forget_location'))
-  assert.ok(registry.get('go_to_location'))
-  assert.ok(registry.get('sleep_in_bed'))
-  assert.ok(registry.get('make_item'))
-  assert.ok(registry.get('get_farm_status'))
-  assert.ok(registry.get('farm_crops'))
-  assert.ok(registry.get('farm_all_available'))
-  assert.ok(registry.get('smelt_item'))
-  assert.ok(registry.get('get_furnace_status'))
-  assert.ok(registry.get('collect_furnace_output'))
-  assert.ok(registry.get('build_wall'))
-  assert.ok(registry.get('stop_all'))
+  assert.equal(registry.list().length, 41)
+  for (const name of [
+    'get_status',
+    'get_inventory',
+    'get_scene',
+    'get_recipes',
+    'get_deaths',
+    'return_to_death',
+    'pickup_items',
+    'eat_now',
+    'flee_from_hostiles',
+    'use_nearby_block',
+    'get_saved_locations',
+    'mark_location',
+    'forget_location',
+    'go_to_location',
+    'sleep_in_bed',
+    'make_item',
+    'get_farm_status',
+    'farm_crops',
+    'farm_all_available',
+    'smelt_item',
+    'get_furnace_status',
+    'collect_furnace_output',
+    'build_wall',
+    'stop_all'
+  ]) {
+    assert.ok(registry.get(name), `missing skill: ${name}`)
+  }
 })
