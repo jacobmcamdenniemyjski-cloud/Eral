@@ -70,6 +70,9 @@ function createBot(options = {}) {
     ))
   }
 
+  let digCalls = 0
+  let blockCollectCalls = 0
+
   const bot = {
     registry: {
       blocksByName: BLOCKS,
@@ -89,6 +92,14 @@ function createBot(options = {}) {
       emptySlotCount: () => options.emptySlots ?? 10
     },
     heldItem: null,
+    targetDigBlock: null,
+    entities: {},
+    get digCalls() {
+      return digCalls
+    },
+    get blockCollectCalls() {
+      return blockCollectCalls
+    },
     findBlocks({ matching }) {
       const ids = new Set(Array.isArray(matching) ? matching : [matching])
       const positions = Array.from(world.values())
@@ -115,17 +126,39 @@ function createBot(options = {}) {
     },
     collectBlock: {
       itemFilter: () => true,
-      async collect(block, collectOptions) {
+      async collect(target, collectOptions) {
         bot.lastCollectOptions = collectOptions
-        if (!options.collectDoesNotBreak) {
-          world.set(key(block.position), createBlock('air', block.position))
-        }
+        bot.lastCollectedTarget = target
+        if (target && target.name !== 'item') blockCollectCalls += 1
       },
       async cancelTask() {}
     },
     pathfinder: {
-      async goto() {},
+      async goto(goal) {
+        bot.entity.position = new Vec3(goal.x, goal.y, goal.z)
+      },
       setGoal() {}
+    },
+    canDigBlock() {
+      return options.canDigBlock !== false
+    },
+    async lookAt() {},
+    async waitForTicks() {},
+    async stopDigging() {
+      bot.targetDigBlock = null
+    },
+    async dig(block) {
+      digCalls += 1
+      bot.targetDigBlock = block
+
+      if (
+        !options.digDoesNotBreak &&
+        digCalls > (options.digFailuresBeforeSuccess || 0)
+      ) {
+        world.set(key(block.position), createBlock('air', block.position))
+      }
+
+      bot.targetDigBlock = null
     },
     async equip(item) {
       bot.heldItem = item
@@ -178,7 +211,8 @@ test('farming harvests only mature crops and replants the same block', async () 
   assert.equal(bot.blockAt(mature).name, 'wheat')
   assert.equal(getCropAge(bot.blockAt(mature)), 0)
   assert.equal(getCropAge(bot.blockAt(growing)), 3)
-  assert.equal(bot.lastCollectOptions.itemFilter({ name: 'wheat_seeds' }), false)
+  assert.equal(bot.digCalls, 1)
+  assert.equal(bot.blockCollectCalls, 0)
 })
 
 test('farming rescans after each harvest instead of stopping after one crop', async () => {
@@ -203,11 +237,22 @@ test('farm all inspects status and harvests every mature requested crop', async 
   assert.equal(result.farmStatus.crops[0].mature, 3)
 })
 
-test('a collection task that does not break the crop is not counted', async () => {
-  const { bot } = createBot({ collectDoesNotBreak: true })
+test('a dig that the server does not confirm is retried and not counted', async () => {
+  const { bot } = createBot({ digDoesNotBreak: true })
   const result = await farmCrops(bot, 'wheat', 1)
 
   assert.equal(result, false)
+  assert.equal(bot.digCalls, 2)
+})
+
+test('a transient unconfirmed dig is retried before farming continues', async () => {
+  const { bot } = createBot({ digFailuresBeforeSuccess: 1 })
+  const result = await farmCrops(bot, 'wheat', 1)
+
+  assert.equal(result.harvested, 1)
+  assert.equal(result.replanted, 1)
+  assert.equal(result.complete, true)
+  assert.equal(bot.digCalls, 2)
 })
 
 test('a harvested crop reports a replant failure when no seed exists', async () => {
