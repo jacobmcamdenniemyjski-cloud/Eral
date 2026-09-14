@@ -163,6 +163,15 @@ class LearnedProcedureStore {
       .map(clone)
   }
 
+  definitionOf(entry) {
+    return {
+      name: entry.name,
+      description: entry.description,
+      steps: entry.steps,
+      createdBy: entry.createdBy
+    }
+  }
+
   approve(id, reviewedBy = 'player') {
     const entry = this.find(id)
     if (!entry) throw procedureError(`Unknown procedure id: ${id}`, 'NOT_FOUND')
@@ -175,7 +184,7 @@ class LearnedProcedureStore {
 
     // Revalidate against the current registry before approval. A changed skill
     // schema can never silently turn an old proposal into a different action.
-    this.validateDefinition(entry)
+    this.validateDefinition(this.definitionOf(entry))
     entry.status = 'approved'
     entry.reviewedAt = new Date().toISOString()
     entry.reviewedBy = String(reviewedBy || 'player').slice(0, 80)
@@ -211,7 +220,7 @@ class LearnedProcedureStore {
       )
     }
 
-    const validated = this.validateDefinition(entry)
+    const validated = this.validateDefinition(this.definitionOf(entry))
     const results = []
     for (const step of validated.steps) {
       if (context.signal && context.signal.aborted) throw context.signal.reason
