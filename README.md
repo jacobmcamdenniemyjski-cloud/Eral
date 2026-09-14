@@ -20,6 +20,12 @@ AI / Goals → Deterministic Skills → Mineflayer → Minecraft
 - `earl follow me` — Follows you, opens wooden/copper doors and fence gates, and will not dig through walls.
 - `earl stop` — Safely cancels the active queue, movement, gathering, or combat.
 - `earl goto <x> <y> <z>` — Travels within two blocks of the coordinates.
+- `earl mark home` — Saves Earl's current position as home.
+- `earl mark <location>` — Saves a named location.
+- `earl locations` — Lists saved location names and prints coordinates in the console.
+- `earl go home` / `earl go <location>` — Travels to a saved location.
+- `earl forget <location>` — Removes a saved location.
+- `earl sleep` — Finds a bed within 32 blocks, approaches it, and sleeps when Minecraft allows.
 - `earl look at me` — Looks toward you.
 - `earl find <block>` — Finds the nearest specified block.
 - `earl scan` — Lists nearby entities in the console.
@@ -53,7 +59,7 @@ AI / Goals → Deterministic Skills → Mineflayer → Minecraft
 
 ## Structured skill registry
 
-Earl's chat commands and AI planner share the same 28 deterministic
+Earl's chat commands and AI planner share the same 33 deterministic
 skills. Each skill has a stable name, description, JSON input schema, timeout,
 and safety category. Inputs are validated with Ajv before Minecraft code runs,
 and every execution returns a structured success or error result.
@@ -121,6 +127,30 @@ recipe planning, storage skills locate containers without entity scans, generic
 resource words such as `logs` resolve to real block/item variants, identical
 tool calls in one round run only once, and verbose reasoning-style output is
 blocked before it reaches game chat.
+
+## Home, saved locations, and sleeping
+
+Named locations are stored in `data/locations.json` and survive Earl restarts.
+Each location includes its Minecraft dimension, so Earl refuses to path toward
+overworld coordinates while he is in another dimension. The runtime data folder
+is ignored by Git.
+
+```text
+earl mark home
+earl mark village
+earl locations
+earl go home
+earl go village
+earl forget village
+earl sleep
+earl ask remember this place as home
+earl ask return home
+earl ask go to bed
+```
+
+Sleeping uses Mineflayer's built-in bed detection and sleep API. Earl searches
+within 32 blocks and reports normal Minecraft restrictions such as daytime, an
+occupied bed, monsters nearby, or excessive distance.
 
 ## Furnace management
 
