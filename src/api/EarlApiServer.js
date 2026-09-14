@@ -134,6 +134,8 @@ class EarlApiServer {
     this.runtime = options.runtime
     this.chatBridge = options.chatBridge
     this.taskManager = options.taskManager
+    this.procedureStore = options.procedureStore ||
+      options.runtime.procedureStore || null
     this.deathTracker = options.deathTracker
     this.host = options.host || '127.0.0.1'
     this.port = options.port === undefined ? 3001 : Number(options.port)
@@ -175,7 +177,10 @@ class EarlApiServer {
           username: this.bot.username,
           minecraftVersion: this.bot.version || null,
           brainMode: this.brainMode,
-          bridge: this.chatBridge.summary()
+          bridge: this.chatBridge.summary(),
+          tasks: this.taskManager.recoverySummary
+            ? this.taskManager.recoverySummary()
+            : null
         }
       })
     }
@@ -258,6 +263,34 @@ class EarlApiServer {
       })
     }
 
+    if (path === '/procedures') {
+      if (!this.procedureStore) {
+        return respond(response, 501, errorPayload(
+          new Error('Learned procedures are not configured.'),
+          'NOT_CONFIGURED'
+        ))
+      }
+      return respond(response, 200, {
+        ok: true,
+        data: this.procedureStore.list({
+          status: url.searchParams.get('status') || 'all'
+        })
+      })
+    }
+
+    const procedureMatch = path.match(/^\/procedures\/(\d+)$/)
+    if (procedureMatch) {
+      const procedure = this.procedureStore &&
+        this.procedureStore.find(procedureMatch[1])
+      return respond(
+        response,
+        procedure ? 200 : 404,
+        procedure
+          ? { ok: true, data: procedure }
+          : errorPayload(new Error('Procedure not found.'), 'NOT_FOUND')
+      )
+    }
+
     if (path === '/tasks') {
       return respond(response, 200, {
         ok: true,
@@ -336,13 +369,54 @@ class EarlApiServer {
       return respond(response, 200, { ok: true, data: { sent: true } })
     }
 
-    if (path === '/action/stop' || path === '/task/cancel') {
+    if (path === '/cancel' || path === '/action/stop' || path === '/task/cancel') {
       const task = await this.taskManager.cancelCurrent('stopped by Hermes')
       await this.runtime.cancelActiveWork('stopped by Hermes')
       return respond(response, 200, {
         ok: true,
         data: { stopped: true, task }
       })
+    }
+
+    if (path === '/procedures/stage') {
+      if (!this.procedureStore) {
+        return respond(response, 501, errorPayload(
+          new Error('Learned procedures are not configured.'),
+          'NOT_CONFIGURED'
+        ))
+      }
+      const procedure = this.procedureStore.stage(body.definition || body)
+      return respond(response, 201, { ok: true, data: procedure })
+    }
+
+    const procedureAction = path.match(
+      /^\/procedures\/(\d+)\/(approve|reject|execute)$/
+    )
+    if (procedureAction) {
+      if (!this.procedureStore) {
+        return respond(response, 501, errorPayload(
+          new Error('Learned procedures are not configured.'),
+          'NOT_CONFIGURED'
+        ))
+      }
+      const [, id, action] = procedureAction
+      const data = action === 'approve'
+        ? this.procedureStore.approve(id, body.reviewedBy || 'player')
+        : action === 'reject'
+          ? this.procedureStore.reject(
+              id,
+              body.reason || 'rejected by player',
+              body.reviewedBy || 'player'
+            )
+          : await this.procedureStore.execute(id, {
+              requestedBy: body.requestedBy || 'hermes',
+              cancelActiveWork: this.runtime.cancelActiveWork
+            })
+      return respond(
+        response,
+        action === 'execute' && data.ok === false ? 422 : 200,
+        { ok: action === 'execute' ? data.ok : true, data }
+      )
     }
 
     const taskCancel = path.match(/^\/tasks\/(\d+)\/cancel$/)
@@ -435,9 +509,19 @@ class EarlApiServer {
     } catch (error) {
       const status = error.code === 'TASK_BUSY'
         ? 409
-        : ['INVALID_JSON', 'BODY_TOO_LARGE'].includes(error.code)
-          ? 400
-          : 500
+        : error.code === 'NOT_FOUND'
+          ? 404
+          : error.code === 'PROCEDURE_NOT_APPROVED'
+            ? 403
+            : [
+                'INVALID_JSON',
+                'BODY_TOO_LARGE',
+                'INVALID_PROCEDURE',
+                'PROCEDURE_EXISTS',
+                'PROCEDURE_REVIEWED'
+              ].includes(error.code)
+              ? 400
+              : 500
       return respond(response, status, errorPayload(error))
     }
   }
