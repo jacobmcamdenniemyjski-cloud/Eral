@@ -11,7 +11,8 @@ function usage(message) {
   console.error([
     'Usage: node bin/mc.js <command> [arguments]',
     'Observe: status, inventory, nearby [range], scene [range], skills',
-    'Messages: read_chat, commands, claim ID, complete ID [result], chat MESSAGE',
+    'Messages: read_chat, commands, wait [seconds], claim ID, complete ID [result]',
+    '          chat MESSAGE',
     'Actions: follow PLAYER, collect BLOCK COUNT, craft ITEM COUNT, goto X Y Z',
     '         fight MOB, flee [distance], eat, pickup [count], sleep',
     '         recipes ITEM, use BLOCK, farm CROP COUNT, smelt ITEM COUNT [fuel]',
@@ -77,6 +78,12 @@ async function main() {
       return request('GET', `/chat?after=${integer(args[0], 0)}`)
     case 'commands':
       return request('GET', '/commands')
+    case 'wait':
+    case 'wait_command':
+      return request(
+        'GET',
+        `/commands/wait?timeout=${integer(args[0], 25)}`
+      )
     case 'claim':
       if (!args[0]) return usage('claim requires a command id.')
       return request('POST', `/commands/${integer(args[0])}/claim`, {})
