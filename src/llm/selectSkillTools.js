@@ -81,6 +81,34 @@ const TOOL_GROUPS = [
     ]
   },
   {
+    pattern: /\b(scene|surroundings|survey|look around|what can you see)\b/i,
+    names: ['get_scene']
+  },
+  {
+    pattern: /\b(recipe|recipes|ingredients|how do you make)\b/i,
+    names: ['get_recipes']
+  },
+  {
+    pattern: /\b(pick up|pickup|dropped items?|collect drops?)\b/i,
+    names: ['pickup_items']
+  },
+  {
+    pattern: /\b(flee|run away|retreat|escape)\b/i,
+    names: ['flee_from_hostiles']
+  },
+  {
+    pattern: /\b(eat now|eat food|have something to eat)\b/i,
+    names: ['eat_now']
+  },
+  {
+    pattern: /\b(deathpoint|death point|last death|where did you die|death history)\b/i,
+    names: ['get_deaths', 'return_to_death', 'pickup_items']
+  },
+  {
+    pattern: /\b(use|activate|interact with|open)\b.*\b(block|door|gate|lever|button|furnace|chest|barrel)\b/i,
+    names: ['use_nearby_block']
+  },
+  {
     pattern: /\b(stop|cancel|wait|hold still)\b/i,
     names: ['stop_all']
   }
