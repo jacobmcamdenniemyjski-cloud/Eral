@@ -522,6 +522,53 @@ test('direct skill resolver handles coordinates and common amount wording', () =
   )
 })
 
+test('selector exposes focused saved-location and sleep tools', () => {
+  const definitions = [
+    { name: 'get_status' },
+    { name: 'mark_location' },
+    { name: 'get_saved_locations' },
+    { name: 'go_to' },
+    { name: 'go_to_location' },
+    { name: 'sleep_in_bed' }
+  ]
+
+  assert.deepEqual(
+    selectSkillTools('remember this place as home', definitions),
+    [{ name: 'mark_location' }]
+  )
+  assert.deepEqual(
+    selectSkillTools('return home', definitions),
+    [{ name: 'go_to_location' }]
+  )
+  assert.deepEqual(
+    selectSkillTools('go to bed', definitions),
+    [{ name: 'sleep_in_bed' }]
+  )
+})
+
+test('direct resolver handles saved locations and sleeping', () => {
+  assert.deepEqual(
+    resolveDirectSkillCall('mark this location as home', 'jacob48317'),
+    { name: 'mark_location', input: { name: 'home' } }
+  )
+  assert.deepEqual(
+    resolveDirectSkillCall('list locations', 'jacob48317'),
+    { name: 'get_saved_locations', input: {} }
+  )
+  assert.deepEqual(
+    resolveDirectSkillCall('return home', 'jacob48317'),
+    { name: 'go_to_location', input: { name: 'home' } }
+  )
+  assert.deepEqual(
+    resolveDirectSkillCall('go to saved location village', 'jacob48317'),
+    { name: 'go_to_location', input: { name: 'village' } }
+  )
+  assert.deepEqual(
+    resolveDirectSkillCall('go to bed', 'jacob48317'),
+    { name: 'sleep_in_bed', input: {} }
+  )
+})
+
 test('nearby chest wording selects storage without an entity scan', () => {
   const definitions = [
     { name: 'get_inventory' },
