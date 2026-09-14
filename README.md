@@ -28,7 +28,9 @@ AI / Goals → Deterministic Skills → Mineflayer → Minecraft
 - `earl gather <block> <amount>` — Mines and collects up to 64 blocks.
 - `earl craft <item> <amount>` — Crafts items, using a nearby table when required.
 - `earl make <item> <amount>` — Crafts required intermediate items, then the requested item.
-- `earl smelt <item> <amount> [with <fuel>]` — Uses a nearby furnace and collects the finished items.
+- `earl smelt <item> <amount> [with <fuel>]` — Adds to a compatible furnace load, fuels it, and collects the finished items.
+- `earl furnace status` — Reports nearby furnace input, fuel, output, and progress.
+- `earl furnace collect` — Retrieves all finished output from the nearby furnace.
 - `earl store <item> <amount>` — Stores items in a nearby container.
 - `earl take <item> <amount>` — Withdraws items from a nearby container.
 - `earl equip <item>` — Equips or holds an item.
@@ -46,7 +48,7 @@ AI / Goals → Deterministic Skills → Mineflayer → Minecraft
 
 ## Structured skill registry
 
-Earl's chat commands and AI planner share the same 23 deterministic
+Earl's chat commands and AI planner share the same 25 deterministic
 skills. Each skill has a stable name, description, JSON input schema, timeout,
 and safety category. Inputs are validated with Ajv before Minecraft code runs,
 and every execution returns a structured success or error result.
@@ -114,6 +116,21 @@ recipe planning, storage skills locate containers without entity scans, generic
 resource words such as `logs` resolve to real block/item variants, identical
 tool calls in one round run only once, and verbose reasoning-style output is
 blocked before it reaches game chat.
+
+## Furnace management
+
+Earl can inspect a nearby furnace, collect existing output, add more of the same
+input to an occupied furnace, and reuse compatible fuel already in its fuel
+slot. A different input is rejected instead of mixing furnace recipes, and the
+64-item input-slot limit is enforced.
+
+```text
+earl furnace status
+earl furnace collect
+earl smelt raw iron 3
+earl smelt raw iron 3 with coal
+earl ask collect the furnace output
+```
 
 To try a different installed model for one PowerShell session:
 

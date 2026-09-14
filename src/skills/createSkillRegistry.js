@@ -249,8 +249,32 @@ function createSkillRegistry(options) {
   })
 
   registry.register({
+    name: 'get_furnace_status',
+    description: 'Inspect the nearest furnace and report its input, fuel, output, progress, and remaining burn time.',
+    inputSchema: emptySchema,
+    timeoutMs: 60000,
+    safety: 'read_only',
+    execute: async (input, context) => smeltItem.getFurnaceStatus(
+      bot,
+      { signal: context.signal }
+    )
+  })
+
+  registry.register({
+    name: 'collect_furnace_output',
+    description: 'Retrieve all currently finished output from the nearest furnace.',
+    inputSchema: emptySchema,
+    timeoutMs: 60000,
+    safety: 'inventory_write',
+    execute: async (input, context) => smeltItem.collectFurnaceOutput(
+      bot,
+      { signal: context.signal }
+    )
+  })
+
+  registry.register({
     name: 'smelt_item',
-    description: 'Smelt inventory items in a nearby furnace and collect the output. Earl automatically selects available fuel unless a fuel item is specified.',
+    description: 'Add inventory items to a nearby compatible furnace load, reuse or add fuel, wait for completion, and collect all output.',
     inputSchema: objectSchema({
       item: resourceNameSchema('Minecraft input item to smelt.'),
       amount: {

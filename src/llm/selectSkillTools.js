@@ -40,8 +40,8 @@ const TOOL_GROUPS = [
     names: ['make_item']
   },
   {
-    pattern: /\b(smelt|smelting|furnace|cook ore|refine ore)\b/i,
-    names: ['smelt_item', 'get_inventory']
+    pattern: /\b(smelt|smelting|cook ore|refine ore)\b/i,
+    names: ['smelt_item']
   },
   {
     pattern: /\b(store|deposit|put away)\b|\bput\b.+\b(chest|barrel)\b/i,
@@ -82,9 +82,27 @@ const TOOL_GROUPS = [
   }
 ]
 
+const FURNACE_INTENTS = [
+  {
+    pattern: /\b(?:furnace status|inspect (?:the )?furnace|check (?:the )?furnace)\b|\bwhat(?:'s| is) (?:in|inside) (?:the )?furnace\b/i,
+    names: ['get_furnace_status']
+  },
+  {
+    pattern: /\b(?:furnace collect|collect|take|retrieve)\b.*\b(?:furnace|furnace output|smelted items?|finished output)\b|\b(?:furnace output|smelted items?|finished output)\b.*\b(?:collect|take|retrieve)\b/i,
+    names: ['collect_furnace_output']
+  }
+]
+
 function selectSkillTools(prompt, definitions, options = {}) {
   const maxTools = options.maxTools || 10
   const selectedNames = new Set()
+
+  for (const intent of FURNACE_INTENTS) {
+    if (!intent.pattern.test(prompt)) continue
+    return definitions
+      .filter((definition) => intent.names.includes(definition.name))
+      .slice(0, maxTools)
+  }
 
   for (const group of TOOL_GROUPS) {
     if (!group.pattern.test(prompt)) continue
@@ -98,3 +116,4 @@ function selectSkillTools(prompt, definitions, options = {}) {
 
 module.exports = selectSkillTools
 module.exports.TOOL_GROUPS = TOOL_GROUPS
+module.exports.FURNACE_INTENTS = FURNACE_INTENTS
