@@ -1,4 +1,5 @@
 const withTimeout = require('../scheduler/withTimeout')
+const findNearbyContainer = require('../inventory/findNearbyContainer')
 
 const COLLECT_TIMEOUT_MS = 30000
 
@@ -87,7 +88,27 @@ async function gatherBlock(bot, blockName, amount = 1, options = {}) {
     return false
   }
 
+  const container = findNearbyContainer(bot)
+  const chestLocations = container ? [container.position] : []
+  const inventoryIsFull = (
+    bot.inventory &&
+    typeof bot.inventory.emptySlotCount === 'function' &&
+    bot.inventory.emptySlotCount() === 0
+  )
+
+  if (inventoryIsFull && chestLocations.length === 0) {
+    console.log(`Cannot gather ${blockName}: inventory is full and no nearby container exists.`)
+    bot.chat('My inventory is full. Put a chest or barrel within 16 blocks, or clear a slot.')
+    return false
+  }
+
+  if (inventoryIsFull) {
+    console.log(`Inventory full; using nearby ${container.name} while gathering.`)
+    bot.chat(`My inventory is full, so I will use the nearby ${container.name}.`)
+  }
+
   let collected = 0
+  let inventoryBlocked = false
 
   for (const position of positions) {
     if (collected >= amount) break
@@ -98,7 +119,7 @@ async function gatherBlock(bot, blockName, amount = 1, options = {}) {
 
     try {
       await withTimeout(
-        bot.collectBlock.collect(block),
+        bot.collectBlock.collect(block, { chestLocations }),
         COLLECT_TIMEOUT_MS,
         `collecting ${blockName} at ${position.x},${position.y},${position.z}`,
         {
@@ -114,6 +135,18 @@ async function gatherBlock(bot, blockName, amount = 1, options = {}) {
         throw cancellationError(signal)
       }
 
+      if (/no defined chest locations/i.test(error.message)) {
+        inventoryBlocked = true
+        console.log(
+          `Cannot continue gathering ${blockName}: inventory became full and no nearby container exists.`
+        )
+        bot.chat(
+          'My inventory became full. Put a chest or barrel within 16 blocks, or clear a slot.'
+        )
+        await cancelCollecting(bot)
+        break
+      }
+
       console.log(
         `Skipping ${blockName} at ${position.x},${position.y},${position.z}: ${error.message}`
       )
@@ -121,6 +154,8 @@ async function gatherBlock(bot, blockName, amount = 1, options = {}) {
       await cancelCollecting(bot)
     }
   }
+
+  if (inventoryBlocked) return false
 
   if (collected === 0) {
     console.log(`Could not collect any ${blockName}.`)

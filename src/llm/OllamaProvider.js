@@ -31,7 +31,7 @@ function normalizeThinkOption(value, model) {
 class OllamaProvider {
   constructor(options = {}) {
     this.host = options.host || 'http://127.0.0.1:11434'
-    this.model = options.model || 'qwen3:4b'
+    this.model = options.model || 'qwen3:4b-instruct'
     this.think = normalizeThinkOption(options.think, this.model)
     this.numCtx = options.numCtx || 4096
     this.numPredict = options.numPredict || 384

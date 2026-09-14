@@ -83,26 +83,18 @@ function buildActionPrompt(username) {
     'You are Earl, a capable Minecraft companion controlled through tools.',
     `The player speaking to you is ${username}.`,
     'Use an available tool for every Minecraft observation or action. Never invent results.',
+    'When tools are available, call the best tool immediately. Do not describe, plan, or simulate a tool call in text.',
     'Only change the world, inventory, movement, or combat when the player asks.',
     'Execute dependent steps in order and inspect each tool result before continuing.',
     'When make_item is available, call it immediately for every make or craft request. It is the sole authority on recipes; never calculate Minecraft recipes yourself.',
     'The store_item skill finds nearby chests and barrels itself. Never scan for a container before storing.',
     'Pass generic resource words such as log, logs, wood, or trees to tools instead of rejecting them yourself.',
+    'When the player gives no amount or says some, use amount 1.',
     'If a tool fails, explain the real failure or safely try a reasonable correction.',
     'Never claim an action succeeded unless its tool result has ok=true.',
     'Keep the final Minecraft chat response to two short sentences.',
     'Return only the final response; never reveal analysis, planning, or scratch work.'
   ].join(' ')
-}
-
-function usesQwenNoThinkDirective(provider) {
-  return /qwen3/i.test(String(provider.model || '')) && provider.think === false
-}
-
-function createUserMessage(content, provider) {
-  return usesQwenNoThinkDirective(provider)
-    ? `${content}\n/no_think`
-    : content
 }
 
 class OllamaAgent {
@@ -113,6 +105,7 @@ class OllamaAgent {
     this.maxToolCalls = options.maxToolCalls || 12
     this.historyLimit = options.historyLimit || 4
     this.maxSelectedTools = options.maxSelectedTools || 10
+    this.maxNoToolRetries = options.maxNoToolRetries ?? 1
     this.conversationNumCtx = options.conversationNumCtx || 2048
     this.conversationNumPredict = options.conversationNumPredict || 128
     this.debug = options.debug ?? false
@@ -166,9 +159,10 @@ class OllamaAgent {
     const messages = [
       { role: 'system', content: systemPrompt },
       ...this.getHistory(username),
-      { role: 'user', content: createUserMessage(content, this.provider) }
+      { role: 'user', content }
     ]
     const executedTools = []
+    let noToolRetries = 0
     const requestStartedAt = Date.now()
 
     this.log(
@@ -231,6 +225,27 @@ class OllamaAgent {
         messages.push(assistantMessage)
 
         if (toolCalls.length === 0) {
+          if (mode === 'action' && executedTools.length === 0) {
+            if (noToolRetries < this.maxNoToolRetries) {
+              noToolRetries += 1
+              this.log('[llm] action response contained no tool call; retrying')
+              messages.push({
+                role: 'user',
+                content: 'Call the single best available tool now. Return a tool call only, with valid arguments and no prose.'
+              })
+              continue
+            }
+
+            return {
+              ok: false,
+              error: {
+                code: 'NO_TOOL_CALL',
+                message: 'The model described the action but did not call a Minecraft skill.'
+              },
+              tools: executedTools
+            }
+          }
+
           const reply = finalizeReply(
             assistantMessage.content,
             content,

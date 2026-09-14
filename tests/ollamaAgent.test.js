@@ -31,7 +31,7 @@ function createProvider(responses) {
   const requests = []
   return {
     requests,
-    model: 'qwen3:4b',
+    model: 'qwen3:4b-instruct',
     think: false,
     async chat(request) {
       requests.push(request)
@@ -99,10 +99,9 @@ test('agent executes a requested skill and returns its result to Ollama', async 
   assert.equal(calls[0].name, 'get_status')
   assert.equal(calls[0].context.signal, controller.signal)
   assert.equal(provider.requests.length, 2)
-  assert.doesNotMatch(provider.requests[0].messages[0].content, /\/no_think/)
   const initialUserMessage = provider.requests[0].messages
     .find((message) => message.role === 'user')
-  assert.match(initialUserMessage.content, /\/no_think$/)
+  assert.equal(initialUserMessage.content, 'How are you?')
 
   const toolMessage = provider.requests[1].messages
     .filter((message) => message.role === 'tool')
@@ -264,6 +263,18 @@ test('ordinary conversation uses a small context and minimal prompt', async () =
 
 test('Minecraft actions retain the tool-focused system prompt', async () => {
   const provider = createProvider([
+    {
+      message: {
+        role: 'assistant',
+        content: '',
+        tool_calls: [{
+          function: {
+            name: 'make_item',
+            arguments: { item: 'stone_pickaxe', amount: 1 }
+          }
+        }]
+      }
+    },
     { message: { role: 'assistant', content: 'Done.' } }
   ])
   const definitions = [
@@ -290,6 +301,59 @@ test('Minecraft actions retain the tool-focused system prompt', async () => {
   assert.equal(request.numPredict, undefined)
   assert.equal(request.tools.length, 1)
   assert.match(request.messages[0].content, /sole authority on recipes/i)
+  assert.match(request.messages[0].content, /call the best tool immediately/i)
+})
+
+test('an action retries once when the model writes prose instead of calling a tool', async () => {
+  const provider = createProvider([
+    { message: { role: 'assistant', content: 'I should check health.' } },
+    {
+      message: {
+        role: 'assistant',
+        content: '',
+        tool_calls: [{ function: { name: 'get_status', arguments: {} } }]
+      }
+    },
+    { message: { role: 'assistant', content: 'You are healthy.' } }
+  ])
+  let executions = 0
+  const agent = new OllamaAgent({
+    provider,
+    skillRegistry: createRegistry(async () => {
+      executions += 1
+      return { ok: true, skill: 'get_status', data: { health: 20 } }
+    }),
+    log: silentLog
+  })
+
+  const result = await agent.ask('jacob48317', 'Check your health')
+
+  assert.equal(result.ok, true)
+  assert.equal(executions, 1)
+  assert.equal(provider.requests.length, 3)
+  assert.ok(
+    provider.requests[1].messages.some((message) => (
+      /Call the single best available tool now/.test(message.content || '')
+    ))
+  )
+})
+
+test('an action cannot claim success without calling a Minecraft skill', async () => {
+  const provider = createProvider([
+    { message: { role: 'assistant', content: 'I will gather it.' } },
+    { message: { role: 'assistant', content: 'Done.' } }
+  ])
+  const agent = new OllamaAgent({
+    provider,
+    skillRegistry: createRegistry(),
+    log: silentLog
+  })
+
+  const result = await agent.ask('jacob48317', 'Check your health')
+
+  assert.equal(result.ok, false)
+  assert.equal(result.error.code, 'NO_TOOL_CALL')
+  assert.equal(result.tools.length, 0)
 })
 
 test('debug mode logs thinking separately from final content', async () => {
@@ -336,6 +400,24 @@ test('selector sends only tools relevant to the requested action', () => {
     selectSkillTools('Make one wooden pickaxe', definitions)
       .map((definition) => definition.name),
     ['make_item']
+  )
+})
+
+test('selector makes gathering and come-to-me requests unambiguous', () => {
+  const definitions = [
+    { name: 'get_inventory' },
+    { name: 'find_block' },
+    { name: 'gather_block' },
+    { name: 'follow_player' }
+  ]
+
+  assert.deepEqual(
+    selectSkillTools('gather some dirt', definitions),
+    [{ name: 'gather_block' }]
+  )
+  assert.deepEqual(
+    selectSkillTools('come to me', definitions),
+    [{ name: 'follow_player' }]
   )
 })
 
