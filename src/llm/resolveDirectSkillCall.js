@@ -101,6 +101,50 @@ function resolveDirectSkillCall(prompt, username) {
     return { name: 'sleep_in_bed', input: {} }
   }
 
+  if (/^(?:scene|look around|survey the area|check your surroundings)$/.test(text)) {
+    return { name: 'get_scene', input: { range: 16 } }
+  }
+
+  if (/^(?:pickup|pick up|collect)(?: the)?(?: nearby)?(?: dropped)? items?$/.test(text)) {
+    return {
+      name: 'pickup_items',
+      input: { maxDistance: 16, maxItems: 16 }
+    }
+  }
+
+  if (/^(?:flee|run away|retreat|escape)$/.test(text)) {
+    return { name: 'flee_from_hostiles', input: { distance: 16 } }
+  }
+
+  if (/^(?:eat|eat now|eat food|have something to eat)$/.test(text)) {
+    return { name: 'eat_now', input: {} }
+  }
+
+  if (/^(?:deaths|death history|where did you die|where was your last death)$/.test(text)) {
+    return { name: 'get_deaths', input: {} }
+  }
+
+  if (/^(?:deathpoint|death point|return to (?:your )?last death)$/.test(text)) {
+    return { name: 'return_to_death', input: {} }
+  }
+
+  const recipeMatch = text.match(
+    /^(?:recipes? for|check recipes? for|what are the ingredients for|how do you make)\s+(.+)$/
+  )
+  if (recipeMatch) {
+    return { name: 'get_recipes', input: { item: recipeMatch[1] } }
+  }
+
+  const useMatch = text.match(
+    /^(?:use|activate|interact with|open)(?: the)?\s+(.+)$/
+  )
+  if (useMatch) {
+    return {
+      name: 'use_nearby_block',
+      input: { block: useMatch[1], maxDistance: 16 }
+    }
+  }
+
   if (/^(?:locations|list locations|show locations|show saved locations|where are your saved locations)$/.test(text)) {
     return { name: 'get_saved_locations', input: {} }
   }
