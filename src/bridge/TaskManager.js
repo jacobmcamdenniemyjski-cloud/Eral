@@ -1,11 +1,32 @@
+const fs = require('node:fs')
+const path = require('node:path')
+
+function clone(value) {
+  return value === undefined ? undefined : JSON.parse(JSON.stringify(value))
+}
+
+function saveJson(filePath, value) {
+  if (!filePath) return
+  fs.mkdirSync(path.dirname(filePath), { recursive: true })
+  const temporary = `${filePath}.${process.pid}.tmp`
+  fs.writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`, 'utf8')
+  fs.renameSync(temporary, filePath)
+}
+
 class TaskManager {
-  constructor(options) {
+  constructor(options = {}) {
+    if (!options.skillRegistry) {
+      throw new Error('TaskManager requires a skill registry.')
+    }
     this.skillRegistry = options.skillRegistry
     this.cancelActiveWork = options.cancelActiveWork || (async () => {})
     this.maxHistory = options.maxHistory || 50
+    this.filePath = options.filePath || null
     this.tasks = []
     this.current = null
     this.nextId = 1
+    this.recoveredTasks = 0
+    this.load()
   }
 
   publicTask(task) {
@@ -13,12 +34,62 @@ class TaskManager {
     return {
       id: task.id,
       skill: task.skill,
-      input: task.input,
+      input: clone(task.input),
       requestedBy: task.requestedBy,
       status: task.status,
       startedAt: task.startedAt,
       finishedAt: task.finishedAt,
-      result: task.result
+      result: clone(task.result)
+    }
+  }
+
+  load() {
+    if (!this.filePath) return
+    try {
+      const parsed = JSON.parse(fs.readFileSync(this.filePath, 'utf8'))
+      this.tasks = (Array.isArray(parsed.tasks) ? parsed.tasks : [])
+        .slice(-this.maxHistory)
+        .map((task) => ({ ...task, controller: null, promise: null }))
+      this.nextId = Math.max(
+        Number(parsed.nextId) || 1,
+        ...this.tasks.map((task) => Number(task.id) + 1)
+      )
+
+      const finishedAt = new Date().toISOString()
+      for (const task of this.tasks) {
+        if (!['starting', 'running'].includes(task.status)) continue
+        task.status = 'interrupted'
+        task.finishedAt = finishedAt
+        task.result = {
+          ok: false,
+          skill: task.skill,
+          error: {
+            code: 'TASK_INTERRUPTED',
+            message: 'Earl restarted before this task reported completion.'
+          }
+        }
+        this.recoveredTasks += 1
+      }
+      if (this.recoveredTasks > 0) this.save()
+    } catch (error) {
+      if (error.code !== 'ENOENT') {
+        throw new Error(`Could not load task history: ${error.message}`)
+      }
+    }
+  }
+
+  save() {
+    saveJson(this.filePath, {
+      version: 1,
+      nextId: this.nextId,
+      tasks: this.tasks.map((task) => this.publicTask(task))
+    })
+  }
+
+  recoverySummary() {
+    return {
+      recoveredTasks: this.recoveredTasks,
+      persistent: Boolean(this.filePath)
     }
   }
 
@@ -52,7 +123,7 @@ class TaskManager {
     const task = {
       id: this.nextId++,
       skill,
-      input,
+      input: clone(input),
       requestedBy: context.requestedBy || 'hermes',
       status: 'starting',
       startedAt: new Date().toISOString(),
@@ -65,9 +136,11 @@ class TaskManager {
     this.tasks.push(task)
     this.tasks = this.tasks.slice(-this.maxHistory)
     this.current = task
+    this.save()
 
     task.promise = Promise.resolve().then(async () => {
       task.status = 'running'
+      this.save()
       const result = await this.skillRegistry.execute(skill, input, {
         ...context,
         signal: controller.signal,
@@ -95,6 +168,7 @@ class TaskManager {
     }).finally(() => {
       task.finishedAt = new Date().toISOString()
       if (this.current === task) this.current = null
+      this.save()
     })
 
     return this.publicTask(task)
