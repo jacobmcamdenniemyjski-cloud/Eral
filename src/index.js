@@ -5,6 +5,10 @@ const TaskScheduler = require('./scheduler/TaskScheduler')
 const configureSurvival = require('./survival/configureSurvival')
 const OllamaProvider = require('./llm/OllamaProvider')
 const OllamaAgent = require('./llm/OllamaAgent')
+const ChatBridge = require('./bridge/ChatBridge')
+const TaskManager = require('./bridge/TaskManager')
+const DeathTracker = require('./bridge/DeathTracker')
+const EarlApiServer = require('./api/EarlApiServer')
 
 function envEnabled(value) {
   return ['1', 'true', 'yes', 'on'].includes(
@@ -19,57 +23,146 @@ function parseThinkSetting(value) {
   return String(value).toLowerCase()
 }
 
+function getBrainMode() {
+  const mode = String(process.env.EARL_BRAIN || 'ollama').toLowerCase()
+  if (!['ollama', 'hermes', 'none'].includes(mode)) {
+    throw new Error('EARL_BRAIN must be ollama, hermes, or none.')
+  }
+  return mode
+}
+
+function isLoopback(host) {
+  return ['127.0.0.1', '::1', 'localhost'].includes(host)
+}
+
 async function main() {
+  const brainMode = getBrainMode()
   const bot = await createBot()
   const scheduler = new TaskScheduler()
   const router = new CommandRouter(bot)
+  const chatBridge = new ChatBridge()
+  const deathTracker = new DeathTracker(bot)
+
+  bot.on('chat', (username, message) => {
+    if (username !== bot.username) {
+      chatBridge.recordMessage(username, message)
+    }
+  })
 
   configureSurvival(bot)
-  const runtime = registerCommands(bot, scheduler, router)
-  const ollamaProvider = new OllamaProvider({
-    host: process.env.EARL_OLLAMA_HOST || 'http://127.0.0.1:11434',
-    model: process.env.EARL_OLLAMA_MODEL || 'qwen3:4b-instruct',
-    numCtx: Number(process.env.EARL_OLLAMA_NUM_CTX) || 4096,
-    think: parseThinkSetting(process.env.EARL_OLLAMA_THINK)
+  deathTracker.start()
+
+  const runtime = registerCommands(bot, scheduler, router, {
+    brainMode,
+    chatBridge,
+    deathTracker
   })
-  const llmAgent = new OllamaAgent({
-    provider: ollamaProvider,
+  const taskManager = new TaskManager({
     skillRegistry: runtime.skillRegistry,
-    debug: envEnabled(process.env.EARL_LLM_DEBUG),
-    conversationNumCtx: Number(process.env.EARL_OLLAMA_CHAT_NUM_CTX) || 2048,
-    conversationNumPredict: Number(
-      process.env.EARL_OLLAMA_CHAT_NUM_PREDICT
-    ) || 128
+    cancelActiveWork: runtime.cancelActiveWork
   })
-  runtime.llmAgent = llmAgent
+  runtime.taskManager = taskManager
+
+  let llmAgent = null
+  if (brainMode === 'ollama') {
+    const ollamaProvider = new OllamaProvider({
+      host: process.env.EARL_OLLAMA_HOST || 'http://127.0.0.1:11434',
+      model: process.env.EARL_OLLAMA_MODEL || 'qwen3:4b-instruct',
+      numCtx: Number(process.env.EARL_OLLAMA_NUM_CTX) || 4096,
+      think: parseThinkSetting(process.env.EARL_OLLAMA_THINK)
+    })
+    llmAgent = new OllamaAgent({
+      provider: ollamaProvider,
+      skillRegistry: runtime.skillRegistry,
+      debug: envEnabled(process.env.EARL_LLM_DEBUG),
+      conversationNumCtx: Number(process.env.EARL_OLLAMA_CHAT_NUM_CTX) || 2048,
+      conversationNumPredict: Number(
+        process.env.EARL_OLLAMA_CHAT_NUM_PREDICT
+      ) || 128
+    })
+    runtime.llmAgent = llmAgent
+  }
+
+  const apiEnabled = brainMode === 'hermes' ||
+    envEnabled(process.env.EARL_API_ENABLED)
+  let apiServer = null
+
+  if (apiEnabled) {
+    const host = process.env.EARL_API_HOST || '127.0.0.1'
+    const token = process.env.EARL_API_TOKEN || ''
+    if (!isLoopback(host) && !token) {
+      throw new Error(
+        'EARL_API_TOKEN is required when the API is not bound to localhost.'
+      )
+    }
+
+    apiServer = new EarlApiServer({
+      bot,
+      runtime,
+      chatBridge,
+      taskManager,
+      deathTracker,
+      brainMode,
+      host,
+      port: Number(process.env.EARL_API_PORT) || 3001,
+      token
+    })
+    const address = await apiServer.start()
+    runtime.apiServer = apiServer
+    console.log(
+      `Earl body API listening on http://${address.host}:${address.port}.`
+    )
+  }
 
   bot.once('spawn', () => {
-    console.log('Earl connected and spawned.')
+    console.log(`Earl connected and spawned using ${brainMode} brain mode.`)
 
-    llmAgent.getStatus({ timeoutMs: 5000 }).then((status) => {
-      if (!status.connected) {
-        console.log(`Ollama unavailable: ${status.error}`)
-      } else if (!status.modelInstalled) {
-        console.log(
-          `Ollama connected, but ${status.model} is not installed. ` +
-          `Run: ollama pull ${status.model}`
-        )
-      } else {
-        console.log(`Ollama ready with ${status.model}.`)
-      }
-    })
+    if (llmAgent) {
+      llmAgent.getStatus({ timeoutMs: 5000 }).then((status) => {
+        if (!status.connected) {
+          console.log(`Ollama unavailable: ${status.error}`)
+        } else if (!status.modelInstalled) {
+          console.log(
+            `Ollama connected, but ${status.model} is not installed. ` +
+            `Run: ollama pull ${status.model}`
+          )
+        } else {
+          console.log(`Ollama ready with ${status.model}.`)
+        }
+      })
+    }
   })
 
   bot.on('chat', async (username, message) => {
-    if (username === bot.username) {
-      return
-    }
+    if (username === bot.username) return
 
     try {
       await router.handle(username, message)
     } catch (error) {
       console.error('Command failed:', error)
     }
+  })
+
+  let shuttingDown = false
+  async function shutdown() {
+    if (shuttingDown) return
+    shuttingDown = true
+
+    try {
+      await taskManager.cancelCurrent('Earl is shutting down.')
+    } catch {}
+    deathTracker.stop()
+    if (apiServer) await apiServer.stop()
+    try {
+      bot.quit('Earl is shutting down.')
+    } catch {}
+  }
+
+  process.once('SIGINT', () => {
+    void shutdown().finally(() => process.exit(0))
+  })
+  process.once('SIGTERM', () => {
+    void shutdown().finally(() => process.exit(0))
   })
 }
 
