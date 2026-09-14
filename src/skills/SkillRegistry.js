@@ -75,9 +75,8 @@ class SkillRegistry {
     }))
   }
 
-  async execute(name, input = {}, context = {}) {
+  validateInput(name, input = {}) {
     const skill = this.skills.get(name)
-
     if (!skill) {
       return {
         ok: false,
@@ -96,7 +95,6 @@ class SkillRegistry {
         message: error.message,
         params: error.params
       }))
-
       return {
         ok: false,
         skill: name,
@@ -107,6 +105,13 @@ class SkillRegistry {
         }
       }
     }
+    return { ok: true, skill: name }
+  }
+
+  async execute(name, input = {}, context = {}) {
+    const validation = this.validateInput(name, input)
+    if (!validation.ok) return validation
+    const skill = this.skills.get(name)
 
     const controller = new AbortController()
     const externalSignal = context.signal
