@@ -26,5 +26,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Check JavaScript syntax
+        run: npm run check
+
+      - name: Check Bash launcher syntax
+        run: bash -n scripts/start-hermes.sh
+
       - name: Run tests
         run: npm test
