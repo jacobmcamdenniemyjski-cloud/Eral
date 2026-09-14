@@ -32,7 +32,11 @@ const TOOL_GROUPS = [
     names: ['go_to', 'get_status']
   },
   {
-    pattern: /\b(gather|mine|chop|collect|dig|harvest)\b/i,
+    pattern: /\b(farm|farming|harvest|replant|crops?|wheat|carrots?|potatoes?|beetroots?)\b/i,
+    names: ['get_farm_status', 'farm_crops']
+  },
+  {
+    pattern: /\b(gather|mine|chop|collect|dig)\b/i,
     names: ['gather_block']
   },
   {
