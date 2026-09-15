@@ -85,7 +85,7 @@ bash scripts/start-hermes.sh
 
 ## Structured skill registry
 
-Earl's chat commands and AI planners share the same 41 deterministic
+Earl's chat commands and AI planners share the same 46 deterministic
 skills. Each skill has a stable name, description, JSON input schema, timeout,
 and safety category. Inputs are validated with Ajv before Minecraft code runs,
 and every execution returns a structured success or error result.
@@ -94,6 +94,11 @@ The registry is available at `bot.earl.skillRegistry`. A future model provider
 can read `getToolDefinitions()` and request a skill by name; the model will not
 generate or execute arbitrary JavaScript. Existing Mineflayer capabilities
 remain the implementation underneath the registry.
+
+Natural-language structures follow [Building Contract V1](docs/BUILDING_CONTRACT_V1.md):
+validate the plan, clear vegetation across the whole site, build the floor
+before the door, inspect the finished utilities/light/entrance, and physically
+walk through the door before declaring the build complete.
 
 Example internal call:
 

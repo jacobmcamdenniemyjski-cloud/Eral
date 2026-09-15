@@ -2,6 +2,8 @@ const { goals } = require('mineflayer-pathfinder')
 const {
   isPositionClearOfEntities
 } = require('../perception/isPositionClear')
+const { isClearablePlant } = require('./clearBuildSite')
+const { breakVegetation } = require('../farming/gatherSeeds')
 
 const SUPPORT_OFFSETS = [
   [0, -1, 0],
@@ -115,7 +117,7 @@ async function placeBlockAt(bot, blockName, position, options = {}) {
   }
 
   const target = toBlockPosition(bot, position)
-  const currentBlock = bot.blockAt(target)
+  let currentBlock = bot.blockAt(target)
 
   if (!currentBlock) {
     throw new Error(`the target at ${target} is not loaded`)
@@ -123,6 +125,14 @@ async function placeBlockAt(bot, blockName, position, options = {}) {
 
   if (currentBlock.name === blockName) {
     return { placed: false, skipped: true }
+  }
+
+  // Mineflayer reports grass and flowers as replaceable, but servers do not
+  // always replace them reliably during placement. Clear and confirm them
+  // first so a build cannot silently route around vegetation.
+  if (isClearablePlant(currentBlock)) {
+    await breakVegetation(bot, currentBlock, signal)
+    currentBlock = bot.blockAt(target)
   }
 
   if (!isReplaceable(currentBlock)) {

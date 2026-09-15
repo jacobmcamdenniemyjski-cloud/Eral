@@ -62,13 +62,21 @@ const TOOL_GROUPS = [
   {
     pattern: /\b(place|build|wall|floor|line|house|shelter|structure)\b/i,
     names: [
-      'get_status',
+      'get_scene',
       'get_inventory',
+      'validate_build_plan',
+      'clear_build_site',
       'place_block',
       'build_line',
       'build_wall',
-      'build_floor'
+      'build_floor',
+      'inspect_shelter',
+      'traverse_nearby_door'
     ]
+  },
+  {
+    pattern: /\b(clear|prepare|clean|terraform)\b.*\b(site|footprint|area|grass|plants?|flowers?)\b/i,
+    names: ['get_scene', 'clear_build_site']
   },
   {
     pattern: /\b(attack|kill|fight|defend|protect|combat|guard|aggressive|passive|hostile|zombie|skeleton|spider|creeper)\b/i,

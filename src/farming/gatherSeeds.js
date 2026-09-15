@@ -291,4 +291,5 @@ async function gatherSeeds(bot, amount = 1, options = {}) {
 
 module.exports = gatherSeeds
 module.exports.VEGETATION_NAMES = VEGETATION_NAMES
+module.exports.breakVegetation = breakVegetation
 module.exports.inventoryCount = inventoryCount

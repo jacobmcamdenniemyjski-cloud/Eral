@@ -5,6 +5,7 @@ const { Vec3 } = require('vec3')
 const minecraftData = require('minecraft-data')('1.21.1')
 const DoorOpener = require('../src/movement/DoorOpener')
 const followPlayer = require('../src/movement/followPlayer')
+const traverseDoor = require('../src/movement/traverseDoor')
 const smeltItem = require('../src/smelting/smeltItem')
 const selectSkillTools = require('../src/llm/selectSkillTools')
 const resolveDirectSkillCall = require('../src/llm/resolveDirectSkillCall')
@@ -249,10 +250,11 @@ test('door opener clicks a horizontal face and ignores iron doors', async () => 
   assert.equal(replans, 1)
 })
 
-test('following recalculates its route after a door opens', async () => {
+test('following plans through doors without allowing wall digging', async () => {
   const bot = new EventEmitter()
   const player = { position: new Vec3(8, 0, 0) }
   const goals = []
+  let movements = null
 
   bot.entity = { position: new Vec3(0, 0, 0) }
   bot.players = { jacob48317: { entity: player } }
@@ -260,7 +262,7 @@ test('following recalculates its route after a door opens', async () => {
   bot.inventory = { items: () => [] }
   bot.pathfinder = {
     goal: null,
-    setMovements() {},
+    setMovements(value) { movements = value },
     setGoal(goal, dynamic) {
       this.goal = goal
       goals.push({ goal, dynamic })
@@ -269,12 +271,79 @@ test('following recalculates its route after a door opens', async () => {
   bot.chat = () => {}
 
   await followPlayer(bot, 'jacob48317')
-  await bot.earl.doorOpener.onOpened()
-  bot.earl.doorOpener.stop()
+  assert.equal(goals.length, 1)
+  assert.equal(movements.canOpenDoors, true)
+  assert.equal(movements.canDig, false)
+})
 
-  assert.equal(goals.length, 2)
-  assert.equal(goals[1].goal, goals[0].goal)
-  assert.equal(goals[1].dynamic, true)
+test('door opener retries when the server does not confirm the first click', async () => {
+  const bot = new EventEmitter()
+  bot.entity = { position: new Vec3(0, 64, 0) }
+  let open = false
+  let attempts = 0
+  const door = {
+    name: 'oak_door',
+    position: new Vec3(1, 64, 0),
+    getProperties: () => ({ half: 'lower', facing: 'east', open })
+  }
+  bot.blockAt = () => door
+  bot.activateBlock = async () => {
+    attempts += 1
+    if (attempts === 2) open = true
+  }
+
+  const opener = new DoorOpener(bot, { stateTimeoutMs: 5 })
+  assert.equal(await opener.setOpen(door, true), true)
+  assert.equal(attempts, 2)
+})
+
+test('door traversal reaches the opposite side and can close behind Earl', async () => {
+  const bot = new EventEmitter()
+  let open = false
+  const lower = {
+    name: 'oak_door',
+    type: 10,
+    position: new Vec3(0, 64, 0),
+    getProperties: () => ({ half: 'lower', facing: 'east', open })
+  }
+  const upper = {
+    name: 'oak_door',
+    type: 10,
+    position: new Vec3(0, 65, 0),
+    getProperties: () => ({ half: 'upper', facing: 'east', open })
+  }
+  bot.entity = { position: new Vec3(-1, 64, 0) }
+  bot.registry = {
+    ...minecraftData,
+    blocksByName: {
+      ...minecraftData.blocksByName,
+      oak_door: { ...minecraftData.blocksByName.oak_door, id: 10 }
+    }
+  }
+  bot.inventory = { items: () => [] }
+  bot.findBlocks = () => [lower.position, upper.position]
+  bot.blockAt = (position) => position.y === 65 ? upper : lower
+  bot.activateBlock = async () => { open = !open }
+  bot.pathfinder = {
+    goal: null,
+    setMovements() {},
+    setGoal() {},
+    async goto(goal) {
+      bot.entity.position = new Vec3(goal.x, goal.y, goal.z)
+    }
+  }
+
+  const result = await traverseDoor(bot, {
+    maxDistance: 8,
+    closeBehind: true,
+    returnThrough: true
+  })
+
+  assert.equal(result.crossed, true)
+  assert.equal(result.closedBehind, true)
+  assert.equal(result.crossings, 2)
+  assert.equal(bot.entity.position.x, -1)
+  assert.equal(open, false)
 })
 
 test('LLM selects one focused furnace tool for each request', () => {

@@ -152,6 +152,16 @@ Run these in order:
 8. While a long action runs, issue `earl stop`.
 9. Confirm automatic eating, armor, and defensive combat still work without
    Hermes issuing duplicate reflex commands.
+10. `earl ask build a small usable house here` — Hermes must follow
+    [Building Contract V1](BUILDING_CONTRACT_V1.md): validate one plan, clear
+    the footprint and margin, build the floor before the door, add storage,
+    crafting, furnace, windows, and lighting, inspect/repair the result, and
+    physically cross the finished doorway.
+11. Place short grass, a flower, and a two-block flower inside a fresh build
+    footprint. Confirm site preparation removes them instead of building around
+    them.
+12. Close the house door and run `node bin/mc.js door test`; Earl must cross in
+    both directions and close it again.
 
 Use these diagnostics in the Hermes terminal:
 

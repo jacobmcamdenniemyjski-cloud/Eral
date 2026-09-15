@@ -15,7 +15,9 @@ function usage(message) {
     '          chat MESSAGE',
     'Actions: follow PLAYER, collect BLOCK COUNT, craft ITEM COUNT, goto X Y Z',
     '         fight MOB, flee [distance], eat, pickup [count], sleep',
-    '         recipes ITEM, use BLOCK, seeds [count], farm CROP COUNT, smelt ITEM COUNT [fuel]',
+    '         recipes ITEM, use BLOCK, door [close|test], seeds [count], farm CROP COUNT',
+    'Building: site X Y Z WIDTH DEPTH [MARGIN], build_plan JSON, inspect_shelter JSON',
+    '          smelt ITEM COUNT [fuel]',
     'Locations: mark NAME, marks, go_mark NAME, unmark NAME',
     'Recovery: deaths, deathpoint, task, cancel',
     'Procedures: procedures [status], procedure_stage JSON, procedure_approve ID',
@@ -209,6 +211,44 @@ async function main() {
         block: args[0],
         maxDistance: 16
       })
+    case 'door':
+    case 'traverse_door':
+      return execute('traverse_nearby_door', {
+        maxDistance: 16,
+        closeBehind: ['close', 'test'].includes(
+          String(args[0] || '').toLowerCase()
+        ),
+        returnThrough: String(args[0] || '').toLowerCase() === 'test'
+      })
+    case 'site':
+    case 'clear_site':
+      if (args.length < 5) {
+        return usage('site requires X Y Z WIDTH DEPTH [MARGIN].')
+      }
+      return execute('clear_build_site', {
+        origin: {
+          x: integer(args[0]),
+          y: integer(args[1]),
+          z: integer(args[2])
+        },
+        width: integer(args[3]),
+        depth: integer(args[4]),
+        ...(args[5] === undefined ? {} : { margin: integer(args[5]) })
+      }, true)
+    case 'build_plan':
+    case 'inspect_shelter': {
+      if (args.length === 0) return usage(`${command} requires JSON.`)
+      let plan
+      try {
+        plan = JSON.parse(args.join(' '))
+      } catch {
+        throw new Error('Building plan must be valid JSON.')
+      }
+      return execute(
+        command === 'build_plan' ? 'validate_build_plan' : 'inspect_shelter',
+        plan
+      )
+    }
     case 'seeds':
     case 'gather_seeds':
       return execute('gather_seeds', {

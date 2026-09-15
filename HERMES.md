@@ -44,8 +44,8 @@ After one reasonable correction, report the actual blocker instead of looping.
 ## Ownership boundary
 
 Earl's body is authoritative for recipes, crafting plans, resource names,
-pathfinding, door handling, combat timing, farming, seed gathering, smelting, containers,
-building primitives, survival reflexes, and cancellation. Do not simulate these
+pathfinding, door handling, combat timing, farming, vegetation clearing, smelting,
+containers, Building Contract V1, building primitives, survival reflexes, and cancellation. Do not simulate these
 mechanics in prose or recreate them in shell scripts. Ask the body and call its
 skill.
 
@@ -69,6 +69,7 @@ node bin/mc.js smelt raw_iron 4 coal
 node bin/mc.js fight zombie
 node bin/mc.js flee 16
 node bin/mc.js pickup
+node bin/mc.js door test
 node bin/mc.js sleep
 node bin/mc.js mark home
 node bin/mc.js go_mark home
@@ -78,6 +79,39 @@ node bin/mc.js deathpoint
 Use `node bin/mc.js skills` for the complete JSON schemas.
 
 When building a new wheat farm and wheat seeds are missing, use `node bin/mc.js seeds COUNT`. Do not call generic block collection on short grass: seed drops are random, and the dedicated skill keeps clearing vegetation until Earl actually owns the requested number or exhausts nearby candidates.
+
+## Building Contract V1
+
+Never improvise a house as an unordered series of block placements. For every
+room or shelter, use this sequence:
+
+1. Survey the proposed footprint and choose one finished floor Y level.
+2. Define a rectangular plan with width/depth of at least 3, interior height of
+   at least 2 blocks (3 preferred), and a non-corner door whose bottom is
+   exactly one block above the finished floor.
+3. Call `validate_build_plan` before changing the world. Correct every reported
+   problem before continuing.
+4. Call `clear_build_site` for the entire footprint with a two-block margin.
+   It removes grass, ferns, flowers, and other small plants directly. Do not
+   build around vegetation. If `ready` is false, choose a flatter site or
+   explicitly repair the reported raised/unsupported cells before building.
+5. Build the complete floor first. Never place a door before its floor and
+   threshold exist.
+6. Build walls and roof while preserving at least two clear interior blocks.
+7. Install the door on the planned perimeter position. Keep two clear blocks
+   on both its inside and outside approaches.
+8. Fill window openings with glass, glass panes, fences, or iron bars.
+9. Add at least one chest or barrel, crafting table, furnace, and interior light
+   source. Target block light 8 or higher throughout the walkable interior.
+10. Call `inspect_shelter`, repair every reported problem, then call
+    `traverse_nearby_door` with `returnThrough: true` to physically enter and
+    exit. A house is not complete
+    until both validation calls succeed and Earl has crossed its door.
+
+Use `node bin/mc.js build_plan JSON`, `node bin/mc.js site X Y Z WIDTH DEPTH 2`,
+`node bin/mc.js inspect_shelter JSON`, and `node bin/mc.js door test` for these
+contract operations. The same JSON plan must be reused for validation and final
+inspection so floor and door heights cannot drift apart.
 
 ## Memory and learning
 
