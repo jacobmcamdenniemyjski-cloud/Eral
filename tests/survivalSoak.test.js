@@ -1,5 +1,6 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
+const path = require('node:path')
 const {
   parseArgs,
   summarizeSamples,
@@ -12,7 +13,7 @@ test('soak arguments and summary enforce survival criteria', () => {
     {
       minutes: 120,
       interval: 60,
-      output: 'data/survival-soak-latest.json',
+      output: path.join('data', 'survival-soak-latest.json'),
       maxDeaths: 1
     }
   )
