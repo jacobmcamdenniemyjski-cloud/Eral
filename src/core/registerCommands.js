@@ -38,7 +38,12 @@ function sendChatChunks(bot, message, maxLength = 220) {
   for (const chunk of chunks.slice(0, 3)) bot.chat(chunk)
 }
 
-function registerCommands(bot, scheduler, router) {
+function registerCommands(bot, scheduler, router, options = {}) {
+  const {
+    chatBridge = null,
+    deathTracker = null,
+    brainMode = 'ollama'
+  } = options
   bot.on('stoppedAttacking', () => {
     const currentTask = scheduler.getCurrentTask()
     if (currentTask && currentTask.type === 'attack') scheduler.clearTask()
@@ -128,7 +133,12 @@ function registerCommands(bot, scheduler, router) {
   })
   combatReflex.start()
 
-  const skillRegistry = createSkillRegistry({ bot, scheduler, combatReflex })
+  const skillRegistry = createSkillRegistry({
+    bot,
+    scheduler,
+    combatReflex,
+    deathTracker
+  })
 
   async function runSkill(name, input, context) {
     const result = await skillRegistry.execute(name, input, {
@@ -513,6 +523,118 @@ function registerCommands(bot, scheduler, router) {
     return result
   }
 
+  async function handleScene(args, context) {
+    const range = args.trim() ? Number(args.trim()) : 16
+    if (!Number.isInteger(range) || range < 4 || range > 32) {
+      return bot.chat('Usage: scene [range 4-32]')
+    }
+
+    const scene = await runSkill('get_scene', { range }, context)
+    if (scene) {
+      console.log('Scene:', scene)
+      bot.chat(scene.summary)
+    }
+    return scene
+  }
+
+  async function handleRecipes(args, context) {
+    const request = parseItemRequest(bot, args, {
+      kind: 'item',
+      allowAmount: false
+    })
+    if (!request) return bot.chat('Usage: recipes <item>')
+
+    const recipes = await runSkill(
+      'get_recipes',
+      { item: request.name },
+      context
+    )
+    if (recipes) {
+      console.log('Recipes:', recipes)
+      bot.chat(
+        recipes.recipes.length > 0
+          ? `Found ${recipes.recipes.length} recipes for ${request.name}.`
+          : `No recipe found for ${request.name}.`
+      )
+    }
+    return recipes
+  }
+
+  async function handlePickup(args, context) {
+    const maxItems = args.trim() ? Number(args.trim()) : 16
+    if (!Number.isInteger(maxItems) || maxItems < 1 || maxItems > 64) {
+      return bot.chat('Usage: pickup [maximum items 1-64]')
+    }
+
+    const result = await runSkill('pickup_items', {
+      maxDistance: 16,
+      maxItems
+    }, context)
+    if (result) bot.chat(`Picked up ${result.pickedUp} items.`)
+    return result
+  }
+
+  async function handleEat(args, context) {
+    if (args.trim()) return bot.chat('Usage: eat')
+    const result = await runSkill('eat_now', {}, context)
+    if (result) {
+      bot.chat(
+        result.ate
+          ? `Ate ${result.food}.`
+          : 'I am already full.'
+      )
+    }
+    return result
+  }
+
+  async function handleFlee(args, context) {
+    const distance = args.trim() ? Number(args.trim()) : 16
+    if (!Number.isInteger(distance) || distance < 4 || distance > 32) {
+      return bot.chat('Usage: flee [distance 4-32]')
+    }
+
+    const result = await runSkill(
+      'flee_from_hostiles',
+      { distance },
+      context
+    )
+    if (result && !result.fled) bot.chat('No hostile mob is nearby.')
+    return result
+  }
+
+  async function handleUse(args, context) {
+    const request = parseItemRequest(bot, args, {
+      kind: 'block',
+      allowAmount: false
+    })
+    if (!request) return bot.chat('Usage: use <block>')
+
+    return runSkill('use_nearby_block', {
+      block: request.name,
+      maxDistance: 16
+    }, context)
+  }
+
+  async function handleDeaths(args, context) {
+    const deaths = await runSkill('get_deaths', {}, context)
+    if (deaths) {
+      console.log('Death history:', deaths)
+      bot.chat(
+        deaths.length > 0
+          ? `${deaths.length} deaths recorded; see the console.`
+          : 'No deaths recorded.'
+      )
+    }
+    return deaths
+  }
+
+  async function handleDeathpoint(args, context) {
+    if (args.trim()) return bot.chat('Usage: deathpoint')
+    const result = await runSkill('return_to_death', {}, context)
+    if (result) bot.chat('Returned to my latest death location.')
+    return result
+  }
+
   async function handleAttack(args, context) {
     const mobName = args.trim().toLowerCase()
     if (!mobName) return bot.chat('Usage: attack <hostile_mob>')
@@ -637,9 +759,17 @@ function registerCommands(bot, scheduler, router) {
     const request = args.trim()
     if (!request) return bot.chat('Usage: earl ask <natural language request>')
 
+    if (brainMode === 'hermes' && chatBridge) {
+      const queued = chatBridge.enqueue(context.username, request, {
+        source: 'minecraft_ask'
+      })
+      bot.chat(`Queued request #${queued.id} for my Hermes brain.`)
+      return queued
+    }
+
     const agent = bot.earl && bot.earl.llmAgent
     if (!agent) {
-      bot.chat('The Ollama agent is not configured.')
+      bot.chat('No AI brain is configured.')
       return false
     }
 
@@ -722,6 +852,14 @@ function registerCommands(bot, scheduler, router) {
     { verb: 'forget', skill: 'forget_location', handler: handleForget },
     { verb: 'go', skill: 'go_to_location', handler: handleGoLocation },
     { verb: 'sleep', skill: 'sleep_in_bed', handler: handleSleep },
+    { verb: 'scene', skill: 'get_scene', handler: handleScene, passive: true },
+    { verb: 'recipes', skill: 'get_recipes', handler: handleRecipes, passive: true },
+    { verb: 'pickup', skill: 'pickup_items', handler: handlePickup },
+    { verb: 'eat', skill: 'eat_now', handler: handleEat },
+    { verb: 'flee', skill: 'flee_from_hostiles', handler: handleFlee },
+    { verb: 'use', skill: 'use_nearby_block', handler: handleUse },
+    { verb: 'deaths', skill: 'get_deaths', handler: handleDeaths, passive: true },
+    { verb: 'deathpoint', skill: 'return_to_death', handler: handleDeathpoint },
     { verb: 'attack', skill: 'attack_hostile', handler: handleAttack },
     { verb: 'combat', skill: 'get_combat_status', handler: handleCombat, passive: true },
     { verb: 'stop', skill: 'stop_all', handler: handleStop },
@@ -787,7 +925,14 @@ function registerCommands(bot, scheduler, router) {
       text &&
       !/\s+then\s+|(?:^|\s)repeat\s*$/i.test(text)
     ) {
-      bot.chat(`I don't know how to "${text}".`)
+      if (brainMode === 'hermes' && chatBridge) {
+        const queued = chatBridge.enqueue(username, text, {
+          source: 'minecraft'
+        })
+        bot.chat(`Queued request #${queued.id} for my Hermes brain.`)
+      } else {
+        bot.chat(`I don't know how to "${text}".`)
+      }
       return
     }
 
@@ -813,6 +958,9 @@ function registerCommands(bot, scheduler, router) {
     commandQueue,
     combatReflex,
     locationStore: skillRegistry.locationStore,
+    chatBridge,
+    deathTracker,
+    brainMode,
     cancelActiveWork
   }
 

@@ -15,6 +15,32 @@ The goal is to create a persistent Minecraft companion that can survive, gather 
 
 AI / Goals → Deterministic Skills → Mineflayer → Minecraft
 
+## Hermes Agent / HermesCraft compatibility
+
+Earl can now use Hermes Agent as its high-level brain while keeping Earl's
+tested commands, combat/survival reflexes, crafting, farming, smelting,
+building, and pathfinding as the single deterministic Mineflayer body. The
+integration provides a localhost body API, cross-platform `node bin/mc.js`
+control CLI, queued Minecraft chat, background task cancellation, fair-play
+scene summaries, death recovery, and an idle command listener.
+
+Hermes supplies higher-level planning, persistent memory, personality, and
+reviewable procedural learning. It does not run a second bot or generate
+Minecraft JavaScript. See [docs/HERMES_INTEGRATION.md](docs/HERMES_INTEGRATION.md)
+for DeepSeek/Hermes setup and the complete acceptance test.
+
+Windows:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\start-hermes.ps1
+```
+
+Linux/macOS/WSL:
+
+```bash
+bash scripts/start-hermes.sh
+```
+
 ## Commands
 
 - `earl follow me` — Follows you, opens wooden/copper doors and fence gates, and will not dig through walls.
@@ -59,7 +85,7 @@ AI / Goals → Deterministic Skills → Mineflayer → Minecraft
 
 ## Structured skill registry
 
-Earl's chat commands and AI planner share the same 33 deterministic
+Earl's chat commands and AI planners share the same 46 deterministic
 skills. Each skill has a stable name, description, JSON input schema, timeout,
 and safety category. Inputs are validated with Ajv before Minecraft code runs,
 and every execution returns a structured success or error result.
@@ -68,6 +94,11 @@ The registry is available at `bot.earl.skillRegistry`. A future model provider
 can read `getToolDefinitions()` and request a skill by name; the model will not
 generate or execute arbitrary JavaScript. Existing Mineflayer capabilities
 remain the implementation underneath the registry.
+
+Natural-language structures follow [Building Contract V1](docs/BUILDING_CONTRACT_V1.md):
+validate the plan, clear vegetation across the whole site, build the floor
+before the door, inspect the finished utilities/light/entrance, and physically
+walk through the door before declaring the build complete.
 
 Example internal call:
 

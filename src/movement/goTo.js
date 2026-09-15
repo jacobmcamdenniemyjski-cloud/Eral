@@ -1,4 +1,5 @@
 const { goals } = require('mineflayer-pathfinder')
+const { configureSafeMovements } = require('./configureDoorTraversal')
 
 function distanceToCoordinates(position, x, y, z) {
   return Math.sqrt(
@@ -17,6 +18,7 @@ async function goTo(bot, x, y, z, options = {}) {
 
   const goal = new goals.GoalNear(x, y, z, tolerance)
   console.log(`Earl is moving near ${x}, ${y}, ${z}.`)
+  configureSafeMovements(bot)
   await bot.pathfinder.goto(goal)
 
   if (signal && signal.aborted) {

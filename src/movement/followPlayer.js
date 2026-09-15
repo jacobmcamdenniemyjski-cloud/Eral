@@ -1,5 +1,7 @@
-const { goals, Movements } = require('mineflayer-pathfinder')
-const DoorOpener = require('./DoorOpener')
+const { goals } = require('mineflayer-pathfinder')
+const {
+  configureSafeMovements
+} = require('./configureDoorTraversal')
 
 function getPlayerEntity(bot, playerName) {
   const player = bot.players[playerName]
@@ -21,25 +23,7 @@ async function followPlayer(bot, playerName, { timeoutMs = 5000, pollMs = 200 } 
     return false
   }
 
-  const movements = new Movements(bot)
-  movements.canDig = false
-  movements.canOpenDoors = false
-  bot.pathfinder.setMovements(movements)
-
-  bot.earl = bot.earl || {}
-  const replanAfterDoor = () => {
-    const currentGoal = bot.pathfinder.goal
-    if (currentGoal) bot.pathfinder.setGoal(currentGoal, true)
-  }
-
-  if (!bot.earl.doorOpener) {
-    bot.earl.doorOpener = new DoorOpener(bot, {
-      onOpened: replanAfterDoor
-    })
-  } else {
-    bot.earl.doorOpener.onOpened = replanAfterDoor
-  }
-  bot.earl.doorOpener.start()
+  configureSafeMovements(bot)
 
   bot.pathfinder.setGoal(new goals.GoalFollow(player, 2), true)
   console.log(`Earl is now following ${playerName}.`)

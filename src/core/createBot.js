@@ -6,12 +6,15 @@ const autoEat = require('mineflayer-auto-eat').plugin
 const loadPvpPlugin = require('./loadPvpPlugin')
 
 async function createBot() {
+  const configuredVersion = process.env.EARL_MC_VERSION || '1.21.11'
   const bot = mineflayer.createBot({
-    host: 'localhost',
-    port: 25565,
-    username: 'earl',
-    auth: 'offline',
-    version: '1.21.11'
+    host: process.env.EARL_MC_HOST || process.env.MC_HOST || 'localhost',
+    port: Number(process.env.EARL_MC_PORT || process.env.MC_PORT) || 25565,
+    username: process.env.EARL_MC_USERNAME ||
+      process.env.MC_USERNAME ||
+      'earl',
+    auth: process.env.EARL_MC_AUTH || process.env.MC_AUTH || 'offline',
+    ...(configuredVersion === 'auto' ? {} : { version: configuredVersion })
   })
 
   bot.loadPlugin(pathfinder)

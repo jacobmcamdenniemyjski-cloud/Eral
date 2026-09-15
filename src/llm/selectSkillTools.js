@@ -62,13 +62,21 @@ const TOOL_GROUPS = [
   {
     pattern: /\b(place|build|wall|floor|line|house|shelter|structure)\b/i,
     names: [
-      'get_status',
+      'get_scene',
       'get_inventory',
+      'validate_build_plan',
+      'clear_build_site',
       'place_block',
       'build_line',
       'build_wall',
-      'build_floor'
+      'build_floor',
+      'inspect_shelter',
+      'traverse_nearby_door'
     ]
+  },
+  {
+    pattern: /\b(clear|prepare|clean|terraform)\b.*\b(site|footprint|area|grass|plants?|flowers?)\b/i,
+    names: ['get_scene', 'clear_build_site']
   },
   {
     pattern: /\b(attack|kill|fight|defend|protect|combat|guard|aggressive|passive|hostile|zombie|skeleton|spider|creeper)\b/i,
@@ -79,6 +87,34 @@ const TOOL_GROUPS = [
       'scan_nearby',
       'equip_item'
     ]
+  },
+  {
+    pattern: /\b(scene|surroundings|survey|look around|what can you see)\b/i,
+    names: ['get_scene']
+  },
+  {
+    pattern: /\b(recipe|recipes|ingredients|how do you make)\b/i,
+    names: ['get_recipes']
+  },
+  {
+    pattern: /\b(pick up|pickup|dropped items?|collect drops?)\b/i,
+    names: ['pickup_items']
+  },
+  {
+    pattern: /\b(flee|run away|retreat|escape)\b/i,
+    names: ['flee_from_hostiles']
+  },
+  {
+    pattern: /\b(eat now|eat food|have something to eat)\b/i,
+    names: ['eat_now']
+  },
+  {
+    pattern: /\b(deathpoint|death point|last death|where did you die|death history)\b/i,
+    names: ['get_deaths', 'return_to_death', 'pickup_items']
+  },
+  {
+    pattern: /\b(use|activate|interact with|open)\b.*\b(block|door|gate|lever|button|furnace|chest|barrel)\b/i,
+    names: ['use_nearby_block']
   },
   {
     pattern: /\b(stop|cancel|wait|hold still)\b/i,
@@ -121,6 +157,10 @@ const FURNACE_INTENTS = [
 ]
 
 const FARM_INTENTS = [
+  {
+    pattern: /\b(?:gather|collect|get|find)\b.*\b(?:wheat\s+)?seeds?\b|\b(?:wheat\s+)?seeds?\b.*\b(?:gather|collect|get|find)\b/i,
+    names: ['gather_seeds']
+  },
   {
     pattern: /\b(?:farm|harvest|replant|collect)\s+(?:everything|all(?:\s+(?:available|mature))?(?:\s+(?:of\s+)?(?:the\s+)?)?(?:wheat|carrots?|potatoes?|beetroots?|crops?))\b/i,
     names: ['farm_all_available']

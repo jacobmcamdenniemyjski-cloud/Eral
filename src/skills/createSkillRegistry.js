@@ -5,18 +5,27 @@ const findNearestBlock = require('../perception/findNearestBlock')
 const getStatus = require('../perception/getStatus')
 const getNearbyEntities = require('../perception/getNearbyEntities')
 const getInventory = require('../perception/getInventory')
+const getScene = require('../perception/getScene')
 const gatherBlock = require('../gathering/gatherBlock')
+const gatherSeeds = require('../farming/gatherSeeds')
 const craftItem = require('../crafting/craftItem')
 const makeItem = require('../crafting/makeItem')
+const getRecipes = require('../crafting/getRecipes')
 const smeltItem = require('../smelting/smeltItem')
 const attackNearestHostile = require('../combat/attackNearestHostile')
 const storeItem = require('../inventory/storeItem')
 const takeItem = require('../inventory/takeItem')
 const equipItem = require('../inventory/equipItem')
+const pickupItems = require('../inventory/pickupItems')
 const { placeBlock } = require('../building/placeBlock')
 const buildLine = require('../building/buildLine')
 const buildWall = require('../building/buildWall')
 const buildFloor = require('../building/buildFloor')
+const clearBuildSite = require('../building/clearBuildSite')
+const {
+  inspectShelter,
+  validateBuildPlan
+} = require('../building/buildingContract')
 const farmCrops = require('../farming/farmCrops')
 const getFarmStatus = require('../farming/getFarmStatus')
 const LocationStore = require('../locations/LocationStore')
@@ -25,6 +34,10 @@ const {
   markCurrentLocation
 } = require('../locations/locationActions')
 const sleepInBed = require('../survival/sleepInBed')
+const eatNow = require('../survival/eatNow')
+const fleeFromHostiles = require('../movement/fleeFromHostiles')
+const traverseDoor = require('../movement/traverseDoor')
+const useBlock = require('../world/useBlock')
 const { resolveResourceName } = require('../core/parseItemRequest')
 const SkillRegistry = require('./SkillRegistry')
 
@@ -89,8 +102,16 @@ const cropNameSchema = {
   description: 'Supported crop name, or all for every supported crop.'
 }
 
+const buildPlanSchema = objectSchema({
+  origin: positionSchema,
+  width: { type: 'integer', minimum: 3, maximum: 16 },
+  depth: { type: 'integer', minimum: 3, maximum: 16 },
+  interiorHeight: { type: 'integer', minimum: 2, maximum: 4 },
+  doorPosition: positionSchema
+}, ['origin', 'width', 'depth', 'interiorHeight', 'doorPosition'])
+
 function createSkillRegistry(options) {
-  const { bot, scheduler, combatReflex } = options
+  const { bot, scheduler, combatReflex, deathTracker } = options
   const locationStore = options.locationStore || new LocationStore()
   const registry = new SkillRegistry()
 
@@ -253,6 +274,121 @@ function createSkillRegistry(options) {
   })
 
   registry.register({
+    name: 'get_scene',
+    description: 'Return a fair-play summary of status, inventory, nearby entities, and visible notable blocks.',
+    inputSchema: objectSchema({
+      range: { type: 'integer', minimum: 4, maximum: 32 }
+    }, ['range']),
+    safety: 'read_only',
+    execute: async ({ range }) => getScene(bot, range)
+  })
+
+  registry.register({
+    name: 'get_recipes',
+    description: 'Use the Minecraft registry to list authoritative recipes and required ingredients for an item.',
+    inputSchema: objectSchema({
+      item: resourceNameSchema('Minecraft output item name.')
+    }, ['item']),
+    safety: 'read_only',
+    execute: async ({ item }) => getRecipes(
+      bot,
+      normalize(item, 'item')
+    )
+  })
+
+  registry.register({
+    name: 'get_deaths',
+    description: 'List Earl recorded death locations and inventory snapshots.',
+    inputSchema: emptySchema,
+    safety: 'read_only',
+    execute: async () => {
+      if (!deathTracker) throw new Error('Death tracking is unavailable.')
+      return deathTracker.list()
+    }
+  })
+
+  registry.register({
+    name: 'return_to_death',
+    description: 'Travel to Earl most recently recorded death location.',
+    inputSchema: emptySchema,
+    timeoutMs: 600000,
+    safety: 'movement',
+    execute: async (input, context) => {
+      if (!deathTracker) throw new Error('Death tracking is unavailable.')
+      const accepted = scheduler.setTask({
+        type: 'deathpoint',
+        priority: 250
+      })
+      if (!accepted) return false
+
+      try {
+        return await deathTracker.returnToLatest({
+          signal: context.signal
+        })
+      } finally {
+        clearTaskIf('deathpoint')
+      }
+    }
+  })
+
+  registry.register({
+    name: 'pickup_items',
+    description: 'Walk over nearby dropped item entities and collect them.',
+    inputSchema: objectSchema({
+      maxDistance: { type: 'integer', minimum: 1, maximum: 32 },
+      maxItems: { type: 'integer', minimum: 1, maximum: 64 }
+    }, ['maxDistance', 'maxItems']),
+    timeoutMs: 180000,
+    safety: 'inventory_write',
+    execute: async ({ maxDistance, maxItems }, context) => pickupItems(
+      bot,
+      { maxDistance, maxItems, signal: context.signal }
+    )
+  })
+
+  registry.register({
+    name: 'eat_now',
+    description: 'Immediately eat the best safe food in Earl inventory when hungry.',
+    inputSchema: emptySchema,
+    timeoutMs: 30000,
+    safety: 'inventory_write',
+    execute: async (input, context) => eatNow(
+      bot,
+      { signal: context.signal }
+    )
+  })
+
+  registry.register({
+    name: 'flee_from_hostiles',
+    description: 'Find the nearest hostile mob and path away from it.',
+    inputSchema: objectSchema({
+      distance: { type: 'integer', minimum: 4, maximum: 32 }
+    }, ['distance']),
+    timeoutMs: 120000,
+    safety: 'movement',
+    execute: async ({ distance }, context) => fleeFromHostiles(
+      bot,
+      { distance, signal: context.signal }
+    )
+  })
+
+  registry.register({
+    name: 'use_nearby_block',
+    description: 'Approach and activate a nearby named block such as a door, lever, button, furnace, or chest.',
+    inputSchema: objectSchema({
+      block: resourceNameSchema('Minecraft block name to activate.'),
+      maxDistance: { type: 'integer', minimum: 1, maximum: 32 }
+    }, ['block', 'maxDistance']),
+    timeoutMs: 60000,
+    safety: 'world_write',
+    execute: async ({ block, maxDistance }, context) => useBlock(
+      bot,
+      normalize(block, 'block'),
+      { maxDistance, signal: context.signal }
+    )
+  })
+
+  registry.register({
     name: 'follow_player',
     description: 'Continuously follow a visible player at a safe distance.',
     inputSchema: objectSchema({
@@ -327,6 +463,32 @@ function createSkillRegistry(options) {
       normalize(block, 'block'),
       amount,
       { signal: context.signal }
+    )
+  })
+
+  registry.register({
+    name: 'gather_seeds',
+    description: 'Collect an actual requested number of wheat seeds by directly breaking nearby short grass or ferns, including vegetation under Earl feet. This handles random seed drops; use it instead of gather_block whenever seeds are needed.',
+    inputSchema: objectSchema({
+      amount: {
+        type: 'integer',
+        minimum: 1,
+        maximum: 32,
+        default: 1
+      },
+      maxDistance: {
+        type: 'integer',
+        minimum: 4,
+        maximum: 32,
+        default: 32
+      }
+    }, ['amount']),
+    timeoutMs: 600000,
+    safety: 'world_write',
+    execute: async ({ amount, maxDistance }, context) => gatherSeeds(
+      bot,
+      amount,
+      { signal: context.signal, maxDistance: maxDistance || 32 }
     )
   })
 
@@ -506,6 +668,57 @@ function createSkillRegistry(options) {
       normalize(block, 'block'),
       position || null,
       { signal: context.signal }
+    )
+  })
+
+  registry.register({
+    name: 'validate_build_plan',
+    description: 'Validate a shelter plan against Building Contract V1 before placing anything: footprint, minimum headroom, and a floor-aligned non-corner doorway.',
+    inputSchema: buildPlanSchema,
+    safety: 'read_only',
+    execute: async (plan) => validateBuildPlan(plan)
+  })
+
+  registry.register({
+    name: 'clear_build_site',
+    description: 'Prepare a rectangular build footprint plus margin by directly breaking grass, ferns, flowers, and other small plants. It confirms every break and reports raised or unsupported cells that still need leveling.',
+    inputSchema: objectSchema({
+      origin: positionSchema,
+      width: { type: 'integer', minimum: 3, maximum: 16 },
+      depth: { type: 'integer', minimum: 3, maximum: 16 },
+      margin: { type: 'integer', minimum: 0, maximum: 3 },
+      clearanceHeight: { type: 'integer', minimum: 2, maximum: 4 }
+    }, ['origin', 'width', 'depth']),
+    timeoutMs: 600000,
+    safety: 'world_write',
+    execute: async (input, context) => clearBuildSite(
+      bot,
+      input,
+      { signal: context.signal }
+    )
+  })
+
+  registry.register({
+    name: 'inspect_shelter',
+    description: 'Inspect a finished shelter against Building Contract V1. Checks its floor, walls, two-block door, clear approaches, windows, storage, crafting table, furnace, and interior lighting.',
+    inputSchema: buildPlanSchema,
+    safety: 'read_only',
+    execute: async (plan) => inspectShelter(bot, plan)
+  })
+
+  registry.register({
+    name: 'traverse_nearby_door',
+    description: 'Approach the nearest hand-openable door, confirm it opens, walk completely through it, optionally return through it to prove both directions work, and optionally close it behind Earl.',
+    inputSchema: objectSchema({
+      maxDistance: { type: 'integer', minimum: 2, maximum: 32 },
+      closeBehind: { type: 'boolean' },
+      returnThrough: { type: 'boolean' }
+    }, ['maxDistance', 'closeBehind', 'returnThrough']),
+    timeoutMs: 120000,
+    safety: 'movement',
+    execute: async ({ maxDistance, closeBehind, returnThrough }, context) => traverseDoor(
+      bot,
+      { maxDistance, closeBehind, returnThrough, signal: context.signal }
     )
   })
 

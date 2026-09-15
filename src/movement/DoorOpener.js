@@ -1,14 +1,32 @@
 const OPENABLE_PATTERN = /(?:_door|_fence_gate)$/
 
-function isHandOpenable(block) {
+function isHandOperable(block) {
   if (!block || !OPENABLE_PATTERN.test(block.name)) return false
   if (block.name === 'iron_door') return false
 
-  const properties = typeof block.getProperties === 'function'
-    ? block.getProperties()
+  return true
+}
+
+function blockProperties(block) {
+  return block && typeof block.getProperties === 'function'
+    ? block.getProperties() || {}
     : {}
+}
+
+function isHandOpenable(block) {
+  if (!isHandOperable(block)) return false
+
+  const properties = blockProperties(block)
 
   return properties.open === false
+}
+
+function resolveDoorBase(bot, block) {
+  if (!block || !/_door$/.test(block.name)) return block
+  if (blockProperties(block).half !== 'upper') return block
+
+  const lower = bot.blockAt(block.position.offset(0, -1, 0))
+  return lower && lower.name === block.name ? lower : block
 }
 
 function horizontalFace(bot, block) {
@@ -26,20 +44,22 @@ function horizontalFace(bot, block) {
     .minus(block.position)
 }
 
-async function waitForOpenState(bot, position, timeoutMs = 500) {
+async function waitForDoorState(bot, position, open, timeoutMs = 750) {
   const deadline = Date.now() + timeoutMs
 
   while (Date.now() < deadline) {
     const current = bot.blockAt(position)
-    const properties = current && typeof current.getProperties === 'function'
-      ? current.getProperties()
-      : {}
+    const properties = blockProperties(current)
 
-    if (properties.open === true) return true
+    if (properties.open === open) return true
     await new Promise((resolve) => setTimeout(resolve, 50))
   }
 
   return false
+}
+
+async function waitForOpenState(bot, position, timeoutMs = 750) {
+  return waitForDoorState(bot, position, true, timeoutMs)
 }
 
 class DoorOpener {
@@ -48,6 +68,7 @@ class DoorOpener {
     this.radius = options.radius || 3
     this.tickInterval = options.tickInterval || 4
     this.cooldownMs = options.cooldownMs || 1000
+    this.stateTimeoutMs = options.stateTimeoutMs || 750
     this.onOpened = options.onOpened || null
     this.running = false
     this.busy = false
@@ -79,7 +100,7 @@ class DoorOpener {
 
   nearbyDoor() {
     const origin = this.bot.entity.position.floored()
-    const candidates = []
+    const candidates = new Map()
 
     for (let x = -this.radius; x <= this.radius; x += 1) {
       for (let y = -1; y <= 2; y += 1) {
@@ -87,17 +108,52 @@ class DoorOpener {
           const block = this.bot.blockAt(origin.offset(x, y, z))
           if (!isHandOpenable(block)) continue
 
+          const base = resolveDoorBase(this.bot, block)
+
           const distance = this.bot.entity.position.distanceTo(
-            block.position.offset(0.5, 0.5, 0.5)
+            base.position.offset(0.5, 0.5, 0.5)
           )
 
-          if (distance <= 4.5) candidates.push({ block, distance })
+          if (distance <= 4.5) {
+            const key = `${base.position.x},${base.position.y},${base.position.z}`
+            const previous = candidates.get(key)
+            if (!previous || distance < previous.distance) {
+              candidates.set(key, { block: base, distance })
+            }
+          }
         }
       }
     }
 
-    candidates.sort((a, b) => a.distance - b.distance)
-    return candidates.length > 0 ? candidates[0].block : null
+    const ordered = [...candidates.values()]
+      .sort((a, b) => a.distance - b.distance)
+    return ordered.length > 0 ? ordered[0].block : null
+  }
+
+  async setOpen(block, open) {
+    const target = resolveDoorBase(this.bot, block)
+    if (!isHandOperable(target)) {
+      throw new Error(`${target ? target.name : 'block'} cannot be opened by hand`)
+    }
+
+    if (blockProperties(target).open === open) return true
+
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      await this.bot.activateBlock(
+        target,
+        horizontalFace(this.bot, target)
+      )
+      if (await waitForDoorState(
+        this.bot,
+        target.position,
+        open,
+        this.stateTimeoutMs
+      )) return true
+    }
+
+    throw new Error(
+      `the server did not confirm ${target.name} ${open ? 'opened' : 'closed'}`
+    )
   }
 
   async tick() {
@@ -114,10 +170,9 @@ class DoorOpener {
     this.busy = true
 
     try {
-      await this.bot.activateBlock(block, horizontalFace(this.bot, block))
-      await waitForOpenState(this.bot, block.position)
+      await this.setOpen(block, true)
       if (this.onOpened) await this.onOpened(block)
-      console.log(`Earl opened ${block.name} while following.`)
+      console.log(`Earl opened ${block.name} for movement.`)
       return true
     } finally {
       this.busy = false
@@ -126,6 +181,10 @@ class DoorOpener {
 }
 
 module.exports = DoorOpener
+module.exports.blockProperties = blockProperties
 module.exports.isHandOpenable = isHandOpenable
+module.exports.isHandOperable = isHandOperable
 module.exports.horizontalFace = horizontalFace
+module.exports.resolveDoorBase = resolveDoorBase
+module.exports.waitForDoorState = waitForDoorState
 module.exports.waitForOpenState = waitForOpenState
