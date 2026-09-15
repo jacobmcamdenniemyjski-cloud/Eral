@@ -128,6 +128,19 @@ function resolveDirectSkillCall(prompt, username) {
     return { name: 'return_to_death', input: {} }
   }
 
+  const seedMatch = text.match(
+    /^(?:gather|collect|get|find)(?: me)?\s+(.+)$/
+  )
+  if (seedMatch) {
+    const request = parseAmountAndResource(seedMatch[1])
+    if (request && /^(?:wheat\s+)?seeds?$/.test(request.resource)) {
+      return {
+        name: 'gather_seeds',
+        input: { amount: request.amount }
+      }
+    }
+  }
+
   const recipeMatch = text.match(
     /^(?:recipes? for|check recipes? for|what are the ingredients for|how do you make)\s+(.+)$/
   )
