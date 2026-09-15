@@ -150,6 +150,10 @@ const FURNACE_INTENTS = [
 
 const FARM_INTENTS = [
   {
+    pattern: /\b(?:gather|collect|get|find)\b.*\b(?:wheat\s+)?seeds?\b|\b(?:wheat\s+)?seeds?\b.*\b(?:gather|collect|get|find)\b/i,
+    names: ['gather_seeds']
+  },
+  {
     pattern: /\b(?:farm|harvest|replant|collect)\s+(?:everything|all(?:\s+(?:available|mature))?(?:\s+(?:of\s+)?(?:the\s+)?)?(?:wheat|carrots?|potatoes?|beetroots?|crops?))\b/i,
     names: ['farm_all_available']
   }
