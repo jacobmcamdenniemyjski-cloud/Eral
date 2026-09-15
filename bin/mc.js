@@ -15,7 +15,7 @@ function usage(message) {
     '          chat MESSAGE',
     'Actions: follow PLAYER, collect BLOCK COUNT, craft ITEM COUNT, goto X Y Z',
     '         fight MOB, flee [distance], eat, pickup [count], sleep',
-    '         recipes ITEM, use BLOCK, farm CROP COUNT, smelt ITEM COUNT [fuel]',
+    '         recipes ITEM, use BLOCK, seeds [count], farm CROP COUNT, smelt ITEM COUNT [fuel]',
     'Locations: mark NAME, marks, go_mark NAME, unmark NAME',
     'Recovery: deaths, deathpoint, task, cancel',
     'Procedures: procedures [status], procedure_stage JSON, procedure_approve ID',
@@ -209,6 +209,12 @@ async function main() {
         block: args[0],
         maxDistance: 16
       })
+    case 'seeds':
+    case 'gather_seeds':
+      return execute('gather_seeds', {
+        amount: integer(args[0], 1),
+        maxDistance: integer(args[1], 32)
+      }, true)
     case 'farm':
     case 'harvest':
       if (!args[0]) return usage('farm requires a crop and amount.')
