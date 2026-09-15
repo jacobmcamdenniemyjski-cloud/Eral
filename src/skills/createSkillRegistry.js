@@ -7,6 +7,7 @@ const getNearbyEntities = require('../perception/getNearbyEntities')
 const getInventory = require('../perception/getInventory')
 const getScene = require('../perception/getScene')
 const gatherBlock = require('../gathering/gatherBlock')
+const gatherSeeds = require('../farming/gatherSeeds')
 const craftItem = require('../crafting/craftItem')
 const makeItem = require('../crafting/makeItem')
 const getRecipes = require('../crafting/getRecipes')
@@ -448,6 +449,32 @@ function createSkillRegistry(options) {
       normalize(block, 'block'),
       amount,
       { signal: context.signal }
+    )
+  })
+
+  registry.register({
+    name: 'gather_seeds',
+    description: 'Collect an actual requested number of wheat seeds by directly breaking nearby short grass or ferns, including vegetation under Earl feet. This handles random seed drops; use it instead of gather_block whenever seeds are needed.',
+    inputSchema: objectSchema({
+      amount: {
+        type: 'integer',
+        minimum: 1,
+        maximum: 32,
+        default: 1
+      },
+      maxDistance: {
+        type: 'integer',
+        minimum: 4,
+        maximum: 32,
+        default: 32
+      }
+    }, ['amount']),
+    timeoutMs: 600000,
+    safety: 'world_write',
+    execute: async ({ amount, maxDistance }, context) => gatherSeeds(
+      bot,
+      amount,
+      { signal: context.signal, maxDistance: maxDistance || 32 }
     )
   })
 
