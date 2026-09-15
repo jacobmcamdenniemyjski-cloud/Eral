@@ -44,7 +44,7 @@ After one reasonable correction, report the actual blocker instead of looping.
 ## Ownership boundary
 
 Earl's body is authoritative for recipes, crafting plans, resource names,
-pathfinding, door handling, combat timing, farming, smelting, containers,
+pathfinding, door handling, combat timing, farming, seed gathering, smelting, containers,
 building primitives, survival reflexes, and cancellation. Do not simulate these
 mechanics in prose or recreate them in shell scripts. Ask the body and call its
 skill.
@@ -62,6 +62,7 @@ node bin/mc.js inventory
 node bin/mc.js recipes wooden_pickaxe
 node bin/mc.js follow jacob48317
 node bin/mc.js bg_collect oak_log 8
+node bin/mc.js seeds 4
 node bin/mc.js craft wooden_pickaxe 1
 node bin/mc.js farm_all wheat
 node bin/mc.js smelt raw_iron 4 coal
@@ -75,6 +76,8 @@ node bin/mc.js deathpoint
 ```
 
 Use `node bin/mc.js skills` for the complete JSON schemas.
+
+When building a new wheat farm and wheat seeds are missing, use `node bin/mc.js seeds COUNT`. Do not call generic block collection on short grass: seed drops are random, and the dedicated skill keeps clearing vegetation until Earl actually owns the requested number or exhausts nearby candidates.
 
 ## Memory and learning
 
