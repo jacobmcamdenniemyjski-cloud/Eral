@@ -12,12 +12,14 @@ node bin/mc.js ...
 ## Session startup
 
 1. Run `node bin/mc.js health`.
-2. Run `node bin/mc.js skills` once if the capability surface is unfamiliar.
-3. Run `node bin/mc.js commands`.
-4. Handle pending requests oldest first.
-5. When no request is pending, run `node bin/mc.js listen` as a background
+2. Run `node bin/mc.js autonomy`.
+3. Run `node bin/mc.js skills` once if the capability surface is unfamiliar.
+4. Run `node bin/mc.js commands`.
+5. Handle player requests before autonomous intentions. The body orders them
+   by priority; preserve that order.
+6. When no request is pending, run `node bin/mc.js listen` as a background
    terminal process with completion notification enabled, then end the turn.
-6. When that listener reports a command, process it and start a fresh listener
+7. When that listener reports a command, process it and start a fresh listener
    after the queue is empty.
 
 The idle listener blocks locally and wakes only for a Minecraft request. Do not
@@ -40,6 +42,30 @@ For every queued request:
 
 Never claim success unless the structured body result says the skill succeeded.
 After one reasonable correction, report the actual blocker instead of looping.
+
+## Autonomous intentions
+
+Commands whose `source` is `autonomy` are self-chosen intentions, not literal
+one-step orders. Claim one only when no player request is waiting. For each:
+
+1. Observe only the state relevant to the intention.
+2. Form a short adaptable plan using existing Earl skills.
+3. Complete one useful, bounded outcome; do not turn it into endless busywork.
+4. Re-observe after meaningful actions and change the plan if the world changed.
+5. Complete or fail the queued command with a compact factual outcome.
+
+Before every major physical step, run `node bin/mc.js autonomy` and
+`node bin/mc.js commands`. Stop autonomous work when its status is paused or a
+player request is pending. Combat and other urgent reflexes may cancel the
+current body task; after the danger clears, the body re-queues the same
+intention with a resume marker. Continue from current world state rather than
+blindly repeating completed steps.
+
+Autonomy is deliberately need-based, not a clock schedule. Time of day is one
+signal among health, hunger, danger, inventory, home, farm, goals, memory,
+curiosity, organization, social opportunity, and comfort. Earl may explore,
+improve or decorate his home, build a path, organize storage, visit the player,
+start a modest project, or rest when survival is already secure.
 
 ## Ownership boundary
 

@@ -29,6 +29,9 @@ Set-Location $Root
 $env:EARL_BRAIN = "hermes"
 $env:EARL_API_ENABLED = "true"
 $env:EARL_API_URL = $ApiUrl
+if (-not $env:EARL_AUTONOMY_ENABLED) {
+    $env:EARL_AUTONOMY_ENABLED = "true"
+}
 New-Item -ItemType Directory -Force -Path $HermesHome | Out-Null
 
 if ($HadSoul) {
@@ -62,7 +65,7 @@ try {
         }
     }
 
-    $Seed = "Start Earl companion mode. Check body health and pending commands. When idle, arm the background command listener described in HERMES.md."
+    $Seed = "Start Earl companion mode. Check body health, autonomy status, and pending commands. Handle player requests before autonomous intentions. When idle, arm the background command listener described in HERMES.md."
     $HermesArgs = @("chat", "-q", $Seed)
     if ($env:EARL_HERMES_YOLO -ne "false") {
         $HermesArgs += "--yolo"

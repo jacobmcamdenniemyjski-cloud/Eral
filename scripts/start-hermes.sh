@@ -37,6 +37,7 @@ cd "$ROOT_DIR"
 export EARL_BRAIN=hermes
 export EARL_API_ENABLED=true
 export EARL_API_URL="$API_URL"
+export EARL_AUTONOMY_ENABLED="${EARL_AUTONOMY_ENABLED:-true}"
 
 mkdir -p "$HERMES_HOME"
 if [ -f "$SOUL_FILE" ]; then
@@ -66,7 +67,7 @@ curl -fsS "$API_URL/health" >/dev/null || {
   exit 1
 }
 
-SEED="Start Earl companion mode. Check body health and pending commands. When idle, arm the background command listener described in HERMES.md."
+SEED="Start Earl companion mode. Check body health, autonomy status, and pending commands. Handle player requests before autonomous intentions. When idle, arm the background command listener described in HERMES.md."
 ARGS=(chat -q "$SEED")
 [ "${EARL_HERMES_YOLO:-true}" != "false" ] && ARGS+=(--yolo)
 [ -n "${EARL_HERMES_MODEL:-}" ] && ARGS+=(--model "$EARL_HERMES_MODEL")

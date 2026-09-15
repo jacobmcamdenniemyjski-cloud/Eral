@@ -123,3 +123,18 @@ test('stop suppression prevents immediate re-engagement', async () => {
 
   assert.equal(fixture.attacks, 0)
 })
+
+test('combat announces urgent start and clear around the reflex', async () => {
+  const fixture = createFixture(2)
+  const urgency = []
+  fixture.reflex.setUrgencyHandler(async (active, reason) => {
+    urgency.push({ active, reason })
+  })
+
+  await fixture.reflex.scan()
+
+  assert.deepEqual(urgency, [
+    { active: true, reason: 'nearby zombie' },
+    { active: false, reason: 'nearby zombie' }
+  ])
+})

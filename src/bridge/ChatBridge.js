@@ -101,9 +101,16 @@ class ChatBridge {
       command: textValue,
       status: 'pending',
       source: metadata.source || 'minecraft',
+      priority: Number.isFinite(Number(metadata.priority))
+        ? Number(metadata.priority)
+        : metadata.source === 'autonomy' ? 10 : 100,
+      intentionId: metadata.intentionId === undefined
+        ? null
+        : Number(metadata.intentionId),
       claimedAt: null,
       completedAt: null,
-      result: null
+      result: null,
+      pauseReason: null
     }
     this.commands.push(entry)
     this.commands = this.commands.slice(-this.maxCommands)
@@ -126,6 +133,10 @@ class ChatBridge {
     const limit = Math.min(Math.max(Number(options.limit) || 20, 1), 100)
     return this.commands
       .filter((entry) => status === 'all' || entry.status === status)
+      .sort((first, second) => (
+        (Number(second.priority) || 0) - (Number(first.priority) || 0) ||
+        Number(first.id) - Number(second.id)
+      ))
       .slice(0, limit)
       .map(clone)
   }
@@ -164,26 +175,55 @@ class ChatBridge {
     entry.status = 'claimed'
     entry.claimedAt = new Date().toISOString()
     this.save()
+    this.events.emit('commandChanged', clone(entry))
+    return clone(entry)
+  }
+
+  pauseCommand(id, reason = 'paused') {
+    const entry = this.findCommand(id)
+    if (!entry) throw new Error(`Unknown command id: ${id}`)
+    if (!['pending', 'claimed'].includes(entry.status)) return clone(entry)
+    entry.status = 'paused'
+    entry.pauseReason = String(reason)
+    entry.pausedAt = new Date().toISOString()
+    this.save()
+    this.events.emit('commandChanged', clone(entry))
+    return clone(entry)
+  }
+
+  resumeCommand(id, options = {}) {
+    const entry = this.findCommand(id)
+    if (!entry) throw new Error(`Unknown command id: ${id}`)
+    if (entry.status !== 'paused') return clone(entry)
+    entry.status = 'pending'
+    entry.command = `${options.prefix || ''}${entry.command}`.trim()
+    entry.claimedAt = null
+    entry.pauseReason = null
+    entry.resumedAt = new Date().toISOString()
+    this.save()
+    this.events.emit('commandChanged', clone(entry))
+    this.events.emit('command', clone(entry))
     return clone(entry)
   }
 
   completeCommand(id, result = null) {
     const entry = this.findCommand(id)
     if (!entry) throw new Error(`Unknown command id: ${id}`)
-    if (!['pending', 'claimed'].includes(entry.status)) {
+    if (!['pending', 'claimed', 'paused'].includes(entry.status)) {
       throw new Error(`Command ${id} is already ${entry.status}.`)
     }
     entry.status = 'completed'
     entry.completedAt = new Date().toISOString()
     entry.result = clone(result)
     this.save()
+    this.events.emit('commandChanged', clone(entry))
     return clone(entry)
   }
 
   failCommand(id, error) {
     const entry = this.findCommand(id)
     if (!entry) throw new Error(`Unknown command id: ${id}`)
-    if (!['pending', 'claimed'].includes(entry.status)) {
+    if (!['pending', 'claimed', 'paused'].includes(entry.status)) {
       throw new Error(`Command ${id} is already ${entry.status}.`)
     }
     entry.status = 'failed'
@@ -192,6 +232,7 @@ class ChatBridge {
       error: error && error.message ? error.message : String(error || 'failed')
     }
     this.save()
+    this.events.emit('commandChanged', clone(entry))
     return clone(entry)
   }
 
@@ -203,6 +244,9 @@ class ChatBridge {
       ).length,
       claimedCommands: this.commands.filter(
         (entry) => entry.status === 'claimed'
+      ).length,
+      pausedCommands: this.commands.filter(
+        (entry) => entry.status === 'paused'
       ).length,
       recoveredCommands: this.recoveredCommands,
       persistent: Boolean(this.filePath)

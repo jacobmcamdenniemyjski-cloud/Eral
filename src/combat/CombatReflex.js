@@ -32,6 +32,7 @@ class CombatReflex {
       : options.reengageCooldownMs
     this.now = options.now || Date.now
     this.cancelForThreat = options.cancelForThreat || (async () => {})
+    this.urgencyHandler = options.urgencyHandler || (async () => {})
     this.notify = options.notify || (() => {})
     this.ownerUsername = null
     this.scanTimer = null
@@ -86,6 +87,20 @@ class CombatReflex {
 
   protect(username) {
     if (username) this.ownerUsername = username
+  }
+
+  setUrgencyHandler(handler) {
+    this.urgencyHandler = typeof handler === 'function'
+      ? handler
+      : async () => {}
+  }
+
+  async notifyUrgency(active, reason) {
+    try {
+      await this.urgencyHandler(active, reason)
+    } catch (error) {
+      console.error(`Urgency handoff failed: ${error.message}`)
+    }
   }
 
   setMode(mode, username) {
@@ -269,8 +284,10 @@ class CombatReflex {
   async engage(threat) {
     if (this.activeTarget) return null
     this.activeTarget = threat
+    const reason = `nearby ${threat.name}`
 
     try {
+      await this.notifyUrgency(true, reason)
       await this.cancelForThreat(
         `interrupted by nearby ${threat.name}`
       )
@@ -325,6 +342,7 @@ class CombatReflex {
 
       this.activeController = null
       this.activeTarget = null
+      await this.notifyUrgency(false, reason)
     }
   }
 }

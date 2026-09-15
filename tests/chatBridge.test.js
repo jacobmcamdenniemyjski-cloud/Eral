@@ -87,3 +87,21 @@ test('chat bridge persists messages and recovers claimed requests', () => {
     fs.rmSync(directory, { recursive: true, force: true })
   }
 })
+
+test('player requests outrank paused and resumable autonomous intentions', () => {
+  const bridge = new ChatBridge()
+  const autonomous = bridge.enqueue('earl', 'improve home', {
+    source: 'autonomy',
+    priority: 10,
+    intentionId: 4
+  })
+  bridge.enqueue('Jacob', 'come here', { source: 'minecraft_ask' })
+
+  assert.equal(bridge.getCommands({ status: 'pending' })[0].from, 'Jacob')
+  bridge.claimCommand(autonomous.id)
+  bridge.pauseCommand(autonomous.id, 'nearby zombie')
+  assert.equal(bridge.findCommand(autonomous.id).status, 'paused')
+  bridge.resumeCommand(autonomous.id, { prefix: 'Resume. ' })
+  assert.equal(bridge.findCommand(autonomous.id).status, 'pending')
+  assert.match(bridge.findCommand(autonomous.id).command, /^Resume\./)
+})

@@ -11,6 +11,7 @@ const TaskManager = require('./bridge/TaskManager')
 const DeathTracker = require('./bridge/DeathTracker')
 const EarlApiServer = require('./api/EarlApiServer')
 const LearnedProcedureStore = require('./learning/LearnedProcedureStore')
+const AutonomyController = require('./autonomy/AutonomyController')
 
 function envEnabled(value) {
   return ['1', 'true', 'yes', 'on'].includes(
@@ -75,6 +76,28 @@ async function main() {
   runtime.taskManager = taskManager
   runtime.procedureStore = procedureStore
 
+  const autonomyController = new AutonomyController({
+    bot,
+    chatBridge,
+    taskManager,
+    skillRegistry: runtime.skillRegistry,
+    combatReflex: runtime.combatReflex,
+    cancelActiveWork: runtime.cancelActiveWork,
+    isBusy: () => Boolean(runtime.commandQueue.activeRun),
+    enabled: envEnabled(process.env.EARL_AUTONOMY_ENABLED),
+    intervalMs: Number(process.env.EARL_AUTONOMY_INTERVAL_MS) || 30000,
+    minimumIntentIntervalMs: Number(
+      process.env.EARL_AUTONOMY_MIN_INTENT_INTERVAL_MS
+    ) || 120000,
+    filePath: process.env.EARL_AUTONOMY_FILE ||
+      path.join(dataDir, 'autonomy.json')
+  })
+  runtime.autonomyController = autonomyController
+  runtime.combatReflex.setUrgencyHandler(async (active, reason) => {
+    if (active) await autonomyController.interrupt(reason)
+    else await autonomyController.resume(`${reason} cleared`)
+  })
+
   let llmAgent = null
   if (brainMode === 'ollama') {
     const ollamaProvider = new OllamaProvider({
@@ -115,6 +138,7 @@ async function main() {
       taskManager,
       procedureStore,
       deathTracker,
+      autonomyController,
       brainMode,
       host,
       port: Number(process.env.EARL_API_PORT) || 3001,
@@ -129,6 +153,11 @@ async function main() {
 
   bot.once('spawn', () => {
     console.log(`Earl connected and spawned using ${brainMode} brain mode.`)
+    autonomyController.start()
+
+    if (autonomyController.getStatus().enabled) {
+      console.log('Earl autonomous life controller is enabled.')
+    }
 
     if (llmAgent) {
       llmAgent.getStatus({ timeoutMs: 5000 }).then((status) => {
@@ -164,6 +193,7 @@ async function main() {
     try {
       await taskManager.cancelCurrent('Earl is shutting down.')
     } catch {}
+    autonomyController.stop()
     deathTracker.stop()
     if (apiServer) await apiServer.stop()
     try {
