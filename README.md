@@ -4,6 +4,25 @@ Earl is a self-hosted autonomous Minecraft NPC built with Mineflayer and local A
 
 The goal is to create a persistent Minecraft companion that can survive, gather resources, craft, farm, fight, build, explore, remember players, and make high-level decisions autonomously.
 
+## Autonomous Life & Decision System
+
+Batch 21 adds a persistent need-based intention controller. Earl weighs
+survival, safety, food and resource security, home quality, curiosity,
+exploration, organization, social interaction, and comfort instead of following
+a fixed time-of-day routine. It chooses a high-level intention, lets Hermes plan
+through existing validated skills, records the outcome, and later re-evaluates.
+
+Player requests and urgent combat reflexes override autonomous work. The current
+intention is paused and preserved, then resumed from current world state after
+the interruption clears. See [docs/AUTONOMY_V1.md](docs/AUTONOMY_V1.md).
+
+```text
+node bin/mc.js autonomy
+node bin/mc.js autonomy_candidates
+node bin/mc.js autonomy_on
+node bin/mc.js autonomy_off
+```
+
 ## Current status
 
 - Minecraft Java server running

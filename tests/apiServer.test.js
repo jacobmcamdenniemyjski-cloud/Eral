@@ -247,3 +247,58 @@ test('body API stages, approves, and executes validated procedures', async () =>
     await server.stop()
   }
 })
+
+test('body API exposes and controls autonomous intentions', async () => {
+  const bot = { entity: {}, username: 'earl', chat: () => {} }
+  const runtime = createRuntime()
+  const chatBridge = new ChatBridge()
+  const taskManager = new TaskManager({
+    skillRegistry: runtime.skillRegistry,
+    cancelActiveWork: runtime.cancelActiveWork
+  })
+  let enabled = false
+  const autonomyController = {
+    getStatus: () => ({ enabled, current: null }),
+    setEnabled: (value) => {
+      enabled = value
+      return { enabled, current: null }
+    },
+    tick: async () => ({ enabled, current: { title: 'inspect home' } }),
+    observe: async () => ({ health: 20 }),
+    generateCandidates: () => [{ title: 'inspect home', score: 42 }],
+    interrupt: async () => ({ enabled, current: null }),
+    resume: async () => ({ enabled, current: null })
+  }
+  const server = new EarlApiServer({
+    bot,
+    runtime,
+    chatBridge,
+    taskManager,
+    autonomyController,
+    port: 0
+  })
+
+  try {
+    const address = await server.start()
+    const base = `http://127.0.0.1:${address.port}`
+    const enabledResult = await (await fetch(`${base}/autonomy/enable`, {
+      method: 'POST'
+    })).json()
+    assert.equal(enabledResult.data.enabled, true)
+
+    const status = await (await fetch(`${base}/autonomy`)).json()
+    assert.equal(status.data.enabled, true)
+
+    const candidates = await (await fetch(
+      `${base}/autonomy/candidates`
+    )).json()
+    assert.equal(candidates.data[0].title, 'inspect home')
+
+    const ticked = await (await fetch(`${base}/autonomy/tick`, {
+      method: 'POST'
+    })).json()
+    assert.equal(ticked.data.current.title, 'inspect home')
+  } finally {
+    await server.stop()
+  }
+})

@@ -109,6 +109,11 @@ The launcher:
 4. starts an interactive Hermes session;
 5. restores the previous Hermes SOUL on exit.
 
+It also enables the
+[Autonomous Life & Decision System](AUTONOMY_V1.md) unless
+`EARL_AUTONOMY_ENABLED=false` is set before launch. Autonomous intentions enter
+the same durable request queue at lower priority than player requests.
+
 The initial Hermes turn checks Earl and arms `node bin/mc.js listen` as a
 background listener. That listener blocks locally until an in-game request is
 queued, avoiding repeated paid model calls while nobody is speaking.
@@ -197,6 +202,10 @@ The body API listens on `127.0.0.1:3001` by default.
 | `EARL_BRIDGE_FILE` | under data dir | Optional queue-state override |
 | `EARL_TASKS_FILE` | under data dir | Optional task-history override |
 | `EARL_PROCEDURES_FILE` | under data dir | Optional procedure-store override |
+| `EARL_AUTONOMY_ENABLED` | launcher: `true` | Enable need-based intentions |
+| `EARL_AUTONOMY_INTERVAL_MS` | `30000` | Autonomy evaluation interval |
+| `EARL_AUTONOMY_MIN_INTENT_INTERVAL_MS` | `120000` | New-intention cooldown |
+| `EARL_AUTONOMY_FILE` | under data dir | Optional autonomy-state override |
 | `EARL_MC_HOST` | `localhost` | Minecraft host |
 | `EARL_MC_PORT` | `25565` | Minecraft port |
 | `EARL_MC_USERNAME` | `earl` | Bot username |

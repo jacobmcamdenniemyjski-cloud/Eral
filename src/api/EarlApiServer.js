@@ -137,6 +137,8 @@ class EarlApiServer {
     this.procedureStore = options.procedureStore ||
       options.runtime.procedureStore || null
     this.deathTracker = options.deathTracker
+    this.autonomyController = options.autonomyController ||
+      options.runtime.autonomyController || null
     this.host = options.host || '127.0.0.1'
     this.port = options.port === undefined ? 3001 : Number(options.port)
     this.token = options.token || ''
@@ -180,6 +182,9 @@ class EarlApiServer {
           bridge: this.chatBridge.summary(),
           tasks: this.taskManager.recoverySummary
             ? this.taskManager.recoverySummary()
+            : null,
+          autonomy: this.autonomyController
+            ? this.autonomyController.getStatus()
             : null
         }
       })
@@ -189,6 +194,29 @@ class EarlApiServer {
       return respond(response, 200, {
         ok: true,
         data: this.runtime.skillRegistry.list()
+      })
+    }
+
+    if (path === '/autonomy') {
+      return respond(response, 200, {
+        ok: true,
+        data: this.autonomyController
+          ? this.autonomyController.getStatus()
+          : null
+      })
+    }
+
+    if (path === '/autonomy/candidates') {
+      if (!this.autonomyController) {
+        return respond(response, 501, errorPayload(
+          new Error('Autonomy is not configured.'),
+          'NOT_CONFIGURED'
+        ))
+      }
+      const snapshot = await this.autonomyController.observe()
+      return respond(response, 200, {
+        ok: true,
+        data: this.autonomyController.generateCandidates(snapshot)
       })
     }
 
@@ -329,6 +357,34 @@ class EarlApiServer {
 
   async handlePost(path, request, response) {
     const body = await readJson(request)
+
+    const autonomyAction = path.match(
+      /^\/autonomy\/(enable|disable|tick|interrupt|resume)$/
+    )
+    if (autonomyAction) {
+      if (!this.autonomyController) {
+        return respond(response, 501, errorPayload(
+          new Error('Autonomy is not configured.'),
+          'NOT_CONFIGURED'
+        ))
+      }
+
+      const action = autonomyAction[1]
+      const data = action === 'enable'
+        ? this.autonomyController.setEnabled(true)
+        : action === 'disable'
+          ? this.autonomyController.setEnabled(false)
+          : action === 'tick'
+            ? await this.autonomyController.tick()
+            : action === 'interrupt'
+              ? await this.autonomyController.interrupt(
+                  body.reason || 'manual interruption'
+                )
+              : await this.autonomyController.resume(
+                  body.reason || 'manual resume'
+                )
+      return respond(response, 200, { ok: true, data })
+    }
 
     if (path === '/execute') {
       const skill = String(body.skill || '')

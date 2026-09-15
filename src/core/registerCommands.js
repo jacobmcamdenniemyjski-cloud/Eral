@@ -898,58 +898,69 @@ function registerCommands(bot, scheduler, router, options = {}) {
   router.prefix('earl', async ({ args, username }) => {
     const text = args.trim()
     combatReflex.protect(username)
-    const singleMatch = !/\s+then\s+|(?:^|\s)repeat\s*$/i.test(text)
-      ? matchVerb(text)
-      : null
-
-    if (singleMatch && singleMatch.verb === 'stop') {
-      combatReflex.suppress(10000)
-      await commandQueue.stop('stopped by player')
-      stopMovement(bot)
-      bot.chat('Stopped.')
-      return
+    const autonomy = bot.earl && bot.earl.autonomyController
+    if (autonomy) {
+      await autonomy.interrupt(`player request from ${username}`)
     }
 
-    if (singleMatch && singleMatch.passive) {
-      await singleMatch.handler(singleMatch.args, {
-        username,
-        signal: new AbortController().signal,
-        stopQueue: () => commandQueue.stop('stopped by command'),
-        cancelActiveWork
-      })
-      return
-    }
+    try {
+      const singleMatch = !/\s+then\s+|(?:^|\s)repeat\s*$/i.test(text)
+        ? matchVerb(text)
+        : null
 
-    if (
-      !singleMatch &&
-      text &&
-      !/\s+then\s+|(?:^|\s)repeat\s*$/i.test(text)
-    ) {
-      if (brainMode === 'hermes' && chatBridge) {
-        const queued = chatBridge.enqueue(username, text, {
-          source: 'minecraft'
-        })
-        bot.chat(`Queued request #${queued.id} for my Hermes brain.`)
-      } else {
-        bot.chat(`I don't know how to "${text}".`)
+      if (singleMatch && singleMatch.verb === 'stop') {
+        combatReflex.suppress(10000)
+        await commandQueue.stop('stopped by player')
+        stopMovement(bot)
+        bot.chat('Stopped.')
+        return
       }
-      return
+
+      if (singleMatch && singleMatch.passive) {
+        await singleMatch.handler(singleMatch.args, {
+          username,
+          signal: new AbortController().signal,
+          stopQueue: () => commandQueue.stop('stopped by command'),
+          cancelActiveWork
+        })
+        return
+      }
+
+      if (
+        !singleMatch &&
+        text &&
+        !/\s+then\s+|(?:^|\s)repeat\s*$/i.test(text)
+      ) {
+        if (brainMode === 'hermes' && chatBridge) {
+          const queued = chatBridge.enqueue(username, text, {
+            source: 'minecraft'
+          })
+          bot.chat(`Queued request #${queued.id} for my Hermes brain.`)
+        } else {
+          bot.chat(`I don't know how to "${text}".`)
+        }
+        return
+      }
+
+      // A direct player command takes control immediately. The short pause
+      // keeps the reflex from restarting during queue handoff; a continuing
+      // threat can still interrupt the new task one second later.
+      combatReflex.suppress(1000)
+
+      await commandQueue.run(
+        text,
+        {
+          username,
+          stopQueue: () => commandQueue.stop('stopped by queue command'),
+          cancelActiveWork
+        },
+        matchVerb
+      )
+    } finally {
+      if (autonomy) {
+        await autonomy.resume(`player request from ${username} finished`)
+      }
     }
-
-    // A direct player command takes control immediately. The short pause keeps
-    // the reflex from restarting during queue handoff; a continuing threat can
-    // still interrupt the new task one second later.
-    combatReflex.suppress(1000)
-
-    await commandQueue.run(
-      text,
-      {
-        username,
-        stopQueue: () => commandQueue.stop('stopped by queue command'),
-        cancelActiveWork
-      },
-      matchVerb
-    )
   })
 
   bot.earl = {

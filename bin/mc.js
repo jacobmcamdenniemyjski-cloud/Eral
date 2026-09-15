@@ -20,6 +20,7 @@ function usage(message) {
     '          smelt ITEM COUNT [fuel]',
     'Locations: mark NAME, marks, go_mark NAME, unmark NAME',
     'Recovery: deaths, deathpoint, task, cancel',
+    'Autonomy: autonomy, autonomy_candidates, autonomy_on, autonomy_off, autonomy_tick',
     'Procedures: procedures [status], procedure_stage JSON, procedure_approve ID',
     '            procedure_reject ID REASON, procedure_run ID',
     'Generic: exec SKILL JSON, bg SKILL JSON'
@@ -78,6 +79,16 @@ async function main() {
       return request('GET', `/scene?range=${integer(args[0], 16)}`)
     case 'skills':
       return request('GET', '/skills')
+    case 'autonomy':
+      return request('GET', '/autonomy')
+    case 'autonomy_candidates':
+      return request('GET', '/autonomy/candidates')
+    case 'autonomy_on':
+      return request('POST', '/autonomy/enable', {})
+    case 'autonomy_off':
+      return request('POST', '/autonomy/disable', {})
+    case 'autonomy_tick':
+      return request('POST', '/autonomy/tick', {})
     case 'read_chat':
       return request('GET', `/chat?after=${integer(args[0], 0)}`)
     case 'commands':
