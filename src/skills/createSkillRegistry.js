@@ -28,6 +28,7 @@ const {
 } = require('../building/buildingContract')
 const farmCrops = require('../farming/farmCrops')
 const getFarmStatus = require('../farming/getFarmStatus')
+const createFarm = require('../farming/createFarm')
 const LocationStore = require('../locations/LocationStore')
 const {
   goToSavedLocation,
@@ -40,6 +41,7 @@ const traverseDoor = require('../movement/traverseDoor')
 const useBlock = require('../world/useBlock')
 const { resolveResourceName } = require('../core/parseItemRequest')
 const SkillRegistry = require('./SkillRegistry')
+const BuildPlanStore = require('../building/BuildPlanStore')
 
 const emptySchema = {
   type: 'object',
@@ -111,9 +113,16 @@ const buildPlanSchema = objectSchema({
 }, ['origin', 'width', 'depth', 'interiorHeight', 'doorPosition'])
 
 function createSkillRegistry(options) {
-  const { bot, scheduler, combatReflex, deathTracker } = options
+  const {
+    bot,
+    scheduler,
+    combatReflex,
+    deathTracker,
+    actionCoordinator
+  } = options
   const locationStore = options.locationStore || new LocationStore()
-  const registry = new SkillRegistry()
+  const buildPlanStore = options.buildPlanStore || new BuildPlanStore()
+  const registry = new SkillRegistry({ actionCoordinator })
 
   function normalize(name, kind) {
     return resolveResourceName(bot, name, kind) || name
@@ -531,6 +540,27 @@ function createSkillRegistry(options) {
   })
 
   registry.register({
+    name: 'create_farm',
+    description: 'Create a verified, level, irrigated crop field. Preserves water, clears only small plants, tills dirt or grass, plants every usable cell, and refuses unsafe terrain or missing resources.',
+    inputSchema: objectSchema({
+      crop: {
+        type: 'string',
+        enum: ['wheat', 'carrots', 'potatoes', 'beetroots']
+      },
+      origin: positionSchema,
+      width: { type: 'integer', minimum: 1, maximum: 9 },
+      depth: { type: 'integer', minimum: 1, maximum: 9 }
+    }, ['crop', 'origin', 'width', 'depth']),
+    timeoutMs: 900000,
+    safety: 'world_write',
+    execute: async (input, context) => createFarm(
+      bot,
+      input,
+      { signal: context.signal }
+    )
+  })
+
+  registry.register({
     name: 'farm_crops',
     description: 'Harvest mature nearby wheat, carrots, potatoes, or beetroots, collect the drops, and immediately replant every harvested block.',
     inputSchema: objectSchema({
@@ -677,6 +707,124 @@ function createSkillRegistry(options) {
     inputSchema: buildPlanSchema,
     safety: 'read_only',
     execute: async (plan) => validateBuildPlan(plan)
+  })
+
+  registry.register({
+    name: 'create_build_plan',
+    description: 'Validate and persist one locked Building Contract V1 plan. Later build phases must use this plan id so origin, elevation, footprint, and doorway cannot drift.',
+    inputSchema: objectSchema({
+      ...buildPlanSchema.properties,
+      material: resourceNameSchema('Optional primary building material.'),
+      requestId: { type: 'integer', minimum: 1 },
+      intentionId: { type: 'integer', minimum: 1 }
+    }, buildPlanSchema.required),
+    safety: 'world_write',
+    execute: async (input) => {
+      const definition = {
+        origin: input.origin,
+        width: input.width,
+        depth: input.depth,
+        interiorHeight: input.interiorHeight,
+        doorPosition: input.doorPosition
+      }
+      const validation = validateBuildPlan(definition)
+      if (!validation.valid) {
+        return {
+          status: 'failed',
+          reason: 'Build plan does not satisfy Building Contract V1.',
+          validation
+        }
+      }
+      return buildPlanStore.create(definition, {
+        material: input.material || null,
+        requestId: input.requestId,
+        intentionId: input.intentionId
+      })
+    }
+  })
+
+  registry.register({
+    name: 'get_build_plan',
+    description: 'Read one persistent build plan, including its locked geometry, current phase, confirmed positions, and failures.',
+    inputSchema: objectSchema({
+      id: { type: 'integer', minimum: 1 }
+    }, ['id']),
+    safety: 'read_only',
+    execute: async ({ id }) => buildPlanStore.get(id)
+  })
+
+  registry.register({
+    name: 'list_build_plans',
+    description: 'List persistent build plans. Paused plans require an explicit decision before work resumes.',
+    inputSchema: objectSchema({
+      status: {
+        type: 'string',
+        enum: ['all', 'active', 'paused', 'completed', 'failed']
+      }
+    }),
+    safety: 'read_only',
+    execute: async ({ status }) => buildPlanStore.list({ status: status || 'all' })
+  })
+
+  registry.register({
+    name: 'advance_build_plan',
+    description: 'Record a verified phase transition for a persistent build plan. This never changes the locked geometry.',
+    inputSchema: objectSchema({
+      id: { type: 'integer', minimum: 1 },
+      phase: {
+        type: 'string',
+        enum: ['planned', 'site_ready', 'floor', 'walls', 'roof', 'door_and_windows', 'furnishing', 'inspection', 'door_test', 'completed']
+      },
+      note: { type: 'string', maxLength: 240 }
+    }, ['id', 'phase']),
+    safety: 'world_write',
+    execute: async ({ id, phase, note }) => buildPlanStore.advance(id, phase, note)
+  })
+
+  registry.register({
+    name: 'prepare_build_plan_site',
+    description: 'Clear the site for an existing persistent build plan using its locked origin and footprint, then advance it to site_ready only after verification.',
+    inputSchema: objectSchema({
+      id: { type: 'integer', minimum: 1 },
+      margin: { type: 'integer', minimum: 0, maximum: 3 }
+    }, ['id']),
+    timeoutMs: 600000,
+    safety: 'world_write',
+    execute: async ({ id, margin }, context) => {
+      const plan = buildPlanStore.get(id)
+      if (!plan) throw new Error(`Unknown build plan id: ${id}`)
+      const result = await clearBuildSite(bot, {
+        origin: plan.definition.origin,
+        width: plan.definition.width,
+        depth: plan.definition.depth,
+        margin: margin === undefined ? 2 : margin,
+        clearanceHeight: plan.definition.interiorHeight + 1
+      }, { signal: context.signal })
+      if (result && result.ready) {
+        buildPlanStore.advance(id, 'site_ready', 'Site clearing verified.')
+      } else {
+        buildPlanStore.pause(id, 'Site preparation requires review or leveling.')
+      }
+      return { plan: buildPlanStore.get(id), site: result }
+    }
+  })
+
+  registry.register({
+    name: 'inspect_build_plan_shelter',
+    description: 'Inspect a shelter using the immutable geometry stored under its build plan id and persist the inspection result.',
+    inputSchema: objectSchema({
+      id: { type: 'integer', minimum: 1 }
+    }, ['id']),
+    safety: 'world_write',
+    execute: async ({ id }) => {
+      const plan = buildPlanStore.get(id)
+      if (!plan) throw new Error(`Unknown build plan id: ${id}`)
+      const inspection = inspectShelter(bot, plan.definition)
+      if (inspection.valid) {
+        buildPlanStore.advance(id, 'inspection', 'Shelter inspection passed.')
+      }
+      return { plan: buildPlanStore.get(id), inspection }
+    }
   })
 
   registry.register({
@@ -878,6 +1026,7 @@ function createSkillRegistry(options) {
   })
 
   registry.locationStore = locationStore
+  registry.buildPlanStore = buildPlanStore
   return registry
 }
 

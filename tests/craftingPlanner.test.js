@@ -93,7 +93,8 @@ test('make creates intermediate materials before the requested item', async () =
 
   const result = await makeItem(fixture.bot, 'wooden_pickaxe', 1)
 
-  assert.equal(result, true)
+  assert.equal(result.status, 'completed')
+  assert.equal(result.crafted, 1)
   assert.equal(fixture.counts.get(fixture.ids.wooden_pickaxe), 1)
   assert.deepEqual(fixture.craftedItems, [
     fixture.ids.oak_planks,
@@ -119,7 +120,8 @@ test('make reuses intermediate ingredients already in inventory', async () => {
 
   const result = await makeItem(fixture.bot, 'wooden_pickaxe', 1)
 
-  assert.equal(result, true)
+  assert.equal(result.status, 'completed')
+  assert.equal(result.steps, 1)
   assert.deepEqual(fixture.craftedItems, [fixture.ids.wooden_pickaxe])
 })
 

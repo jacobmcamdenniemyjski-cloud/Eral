@@ -104,7 +104,7 @@ bash scripts/start-hermes.sh
 
 ## Structured skill registry
 
-Earl's chat commands and AI planners share the same 46 deterministic
+Earl's chat commands and AI planners share the same 55 deterministic
 skills. Each skill has a stable name, description, JSON input schema, timeout,
 and safety category. Inputs are validated with Ajv before Minecraft code runs,
 and every execution returns a structured success or error result.

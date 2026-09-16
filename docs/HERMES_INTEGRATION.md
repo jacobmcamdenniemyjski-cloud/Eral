@@ -243,8 +243,9 @@ JSON schema at staging, approval, and execution.
 ## Restart recovery
 
 Player messages, queued requests, task history, and learned procedures persist
-under `data/`. On restart, a request that Hermes had claimed returns to
-`pending`. An action that was `starting` or `running` is recorded as
+under `data/`. On restart, a request that Hermes had claimed becomes
+`needs_review` and will not replay until an operator explicitly resumes it
+after checking the world. An action that was `starting` or `running` is recorded as
 `interrupted`; Earl deliberately does not replay physical actions because the
 Minecraft world may have changed while it was offline.
 

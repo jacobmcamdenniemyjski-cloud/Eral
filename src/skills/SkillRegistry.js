@@ -15,6 +15,7 @@ class SkillRegistry {
       strict: true
     })
     this.skills = new Map()
+    this.actionCoordinator = options.actionCoordinator || null
   }
 
   register(definition) {
@@ -134,15 +135,33 @@ class SkillRegistry {
     try {
       if (controller.signal.aborted) throw controller.signal.reason
 
-      const data = await withTimeout(
-        Promise.resolve().then(() => {
-          if (controller.signal.aborted) throw controller.signal.reason
+      const executeSkill = (signal, action = {}) => {
+        if (signal.aborted) throw signal.reason
+        return skill.execute(input, {
+          ...context,
+          ...action,
+          signal
+        })
+      }
+      const coordinated = Boolean(
+        this.actionCoordinator &&
+        !['read_only', 'control'].includes(skill.safety)
+      )
+      const operation = coordinated
+        ? this.actionCoordinator.run(
+            name,
+            executeSkill,
+            {
+              signal: controller.signal,
+              requestedBy: context.requestedBy || 'unknown',
+              priority: skill.safety === 'combat' ? 500 : 100,
+              preempt: skill.safety === 'combat'
+            }
+          )
+        : Promise.resolve().then(() => executeSkill(controller.signal))
 
-          return skill.execute(input, {
-            ...context,
-            signal: controller.signal
-          })
-        }),
+      const data = await withTimeout(
+        operation,
         skill.timeoutMs,
         name,
         {
@@ -164,6 +183,22 @@ class SkillRegistry {
           error: {
             code: 'SKILL_FAILED',
             message: `${name} could not complete its task.`
+          }
+        }
+      }
+
+      if (
+        data &&
+        typeof data === 'object' &&
+        ['failed', 'partial'].includes(data.status)
+      ) {
+        return {
+          ok: false,
+          skill: name,
+          data,
+          error: {
+            code: data.status === 'partial' ? 'SKILL_PARTIAL' : 'SKILL_FAILED',
+            message: data.message || `${name} reported ${data.status}.`
           }
         }
       }

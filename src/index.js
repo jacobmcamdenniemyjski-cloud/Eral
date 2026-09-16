@@ -12,6 +12,8 @@ const DeathTracker = require('./bridge/DeathTracker')
 const EarlApiServer = require('./api/EarlApiServer')
 const LearnedProcedureStore = require('./learning/LearnedProcedureStore')
 const AutonomyController = require('./autonomy/AutonomyController')
+const BuildPlanStore = require('./building/BuildPlanStore')
+const SurvivalRecovery = require('./survival/SurvivalRecovery')
 
 function envEnabled(value) {
   return ['1', 'true', 'yes', 'on'].includes(
@@ -48,6 +50,10 @@ async function main() {
     filePath: process.env.EARL_BRIDGE_FILE || path.join(dataDir, 'bridge.json')
   })
   const deathTracker = new DeathTracker(bot)
+  const buildPlanStore = new BuildPlanStore({
+    filePath: process.env.EARL_BUILD_PLANS_FILE ||
+      path.join(dataDir, 'build-plans.json')
+  })
 
   bot.on('chat', (username, message) => {
     if (username !== bot.username) {
@@ -55,13 +61,16 @@ async function main() {
     }
   })
 
-  configureSurvival(bot)
   deathTracker.start()
 
   const runtime = registerCommands(bot, scheduler, router, {
     brainMode,
     chatBridge,
-    deathTracker
+    deathTracker,
+    buildPlanStore
+  })
+  configureSurvival(bot, {
+    actionCoordinator: runtime.actionCoordinator
   })
   const taskManager = new TaskManager({
     skillRegistry: runtime.skillRegistry,
@@ -75,6 +84,7 @@ async function main() {
   })
   runtime.taskManager = taskManager
   runtime.procedureStore = procedureStore
+  runtime.buildPlanStore = buildPlanStore
 
   const autonomyController = new AutonomyController({
     bot,
@@ -96,6 +106,29 @@ async function main() {
   runtime.combatReflex.setUrgencyHandler(async (active, reason) => {
     if (active) await autonomyController.interrupt(reason)
     else await autonomyController.resume(`${reason} cleared`)
+  })
+  const survivalRecovery = new SurvivalRecovery(bot, {
+    actionCoordinator: runtime.actionCoordinator,
+    combatReflex: runtime.combatReflex,
+    autonomyController,
+    filePath: process.env.EARL_SURVIVAL_FILE ||
+      path.join(dataDir, 'survival-recovery.json')
+  })
+  survivalRecovery.start()
+  runtime.survivalRecovery = survivalRecovery
+  runtime.skillRegistry.register({
+    name: 'get_survival_recovery',
+    description: 'Read critical-health and repeated-death recovery state.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    safety: 'read_only',
+    execute: async () => survivalRecovery.getStatus()
+  })
+  runtime.skillRegistry.register({
+    name: 'clear_survival_recovery',
+    description: 'Player-authorized reset of repeated-death recovery mode after the danger is fixed.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    safety: 'control',
+    execute: async () => survivalRecovery.clear()
   })
 
   let llmAgent = null
@@ -195,6 +228,7 @@ async function main() {
     } catch {}
     autonomyController.stop()
     deathTracker.stop()
+    survivalRecovery.stop()
     if (apiServer) await apiServer.stop()
     try {
       bot.quit('Earl is shutting down.')

@@ -64,13 +64,13 @@ const TOOL_GROUPS = [
     names: [
       'get_scene',
       'get_inventory',
-      'validate_build_plan',
-      'clear_build_site',
+      'create_build_plan',
+      'prepare_build_plan_site',
       'place_block',
       'build_line',
       'build_wall',
       'build_floor',
-      'inspect_shelter',
+      'inspect_build_plan_shelter',
       'traverse_nearby_door'
     ]
   },
@@ -157,6 +157,10 @@ const FURNACE_INTENTS = [
 ]
 
 const FARM_INTENTS = [
+  {
+    pattern: /\b(?:build|create|start|make|prepare)\b.*\b(?:farm|field)\b/i,
+    names: ['get_scene', 'get_inventory', 'create_farm']
+  },
   {
     pattern: /\b(?:gather|collect|get|find)\b.*\b(?:wheat\s+)?seeds?\b|\b(?:wheat\s+)?seeds?\b.*\b(?:gather|collect|get|find)\b/i,
     names: ['gather_seeds']

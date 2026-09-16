@@ -51,9 +51,12 @@ class ChatBridge {
       const recoveredAt = new Date().toISOString()
       for (const entry of this.commands) {
         if (entry.status !== 'claimed') continue
-        entry.status = 'pending'
+        entry.status = entry.source === 'autonomy' ? 'paused' : 'needs_review'
         entry.claimedAt = null
         entry.recoveredAt = recoveredAt
+        entry.pauseReason = entry.source === 'autonomy'
+          ? 'Earl restarted while this autonomous intention was active.'
+          : 'Earl restarted after Hermes claimed this request. Review before replaying it.'
         entry.recoveryCount = (Number(entry.recoveryCount) || 0) + 1
         this.recoveredCommands += 1
       }
@@ -194,7 +197,7 @@ class ChatBridge {
   resumeCommand(id, options = {}) {
     const entry = this.findCommand(id)
     if (!entry) throw new Error(`Unknown command id: ${id}`)
-    if (entry.status !== 'paused') return clone(entry)
+    if (!['paused', 'needs_review'].includes(entry.status)) return clone(entry)
     entry.status = 'pending'
     entry.command = `${options.prefix || ''}${entry.command}`.trim()
     entry.claimedAt = null
@@ -209,7 +212,7 @@ class ChatBridge {
   completeCommand(id, result = null) {
     const entry = this.findCommand(id)
     if (!entry) throw new Error(`Unknown command id: ${id}`)
-    if (!['pending', 'claimed', 'paused'].includes(entry.status)) {
+    if (!['pending', 'claimed', 'paused', 'needs_review'].includes(entry.status)) {
       throw new Error(`Command ${id} is already ${entry.status}.`)
     }
     entry.status = 'completed'
@@ -223,7 +226,7 @@ class ChatBridge {
   failCommand(id, error) {
     const entry = this.findCommand(id)
     if (!entry) throw new Error(`Unknown command id: ${id}`)
-    if (!['pending', 'claimed', 'paused'].includes(entry.status)) {
+    if (!['pending', 'claimed', 'paused', 'needs_review'].includes(entry.status)) {
       throw new Error(`Command ${id} is already ${entry.status}.`)
     }
     entry.status = 'failed'
@@ -247,6 +250,9 @@ class ChatBridge {
       ).length,
       pausedCommands: this.commands.filter(
         (entry) => entry.status === 'paused'
+      ).length,
+      reviewCommands: this.commands.filter(
+        (entry) => entry.status === 'needs_review'
       ).length,
       recoveredCommands: this.recoveredCommands,
       persistent: Boolean(this.filePath)

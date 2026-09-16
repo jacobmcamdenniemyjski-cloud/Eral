@@ -4,6 +4,7 @@ const CommandQueue = require('../scheduler/CommandQueue')
 const createSkillRegistry = require('../skills/createSkillRegistry')
 const { parseItemRequest } = require('./parseItemRequest')
 const { resolveCropName } = require('../farming/crops')
+const PhysicalActionCoordinator = require('../actions/PhysicalActionCoordinator')
 
 function getBuildOrigin(parts, startIndex = 1) {
   const coordinates = parts.slice(startIndex, startIndex + 3).map(Number)
@@ -49,7 +50,7 @@ function registerCommands(bot, scheduler, router, options = {}) {
     if (currentTask && currentTask.type === 'attack') scheduler.clearTask()
   })
 
-  async function cancelActiveWork() {
+  async function cleanupPhysicalWork() {
     if (
       bot.collectBlock &&
       typeof bot.collectBlock.cancelTask === 'function'
@@ -108,6 +109,16 @@ function registerCommands(bot, scheduler, router, options = {}) {
     await new Promise((resolve) => setImmediate(resolve))
   }
 
+  const actionCoordinator = options.actionCoordinator ||
+    new PhysicalActionCoordinator({
+      cleanup: cleanupPhysicalWork,
+      prepare: cleanupPhysicalWork
+    })
+
+  async function cancelActiveWork(reason = 'active work cancelled') {
+    return actionCoordinator.cancelAll(reason)
+  }
+
   const commandQueue = new CommandQueue({
     cancelActiveWork,
     repeatDelayMs: 1000,
@@ -129,7 +140,8 @@ function registerCommands(bot, scheduler, router, options = {}) {
   const combatReflex = new CombatReflex(bot, scheduler, {
     mode: 'defensive',
     cancelForThreat: (reason) => commandQueue.cancel(reason),
-    notify: (message) => bot.chat(message)
+    notify: (message) => bot.chat(message),
+    actionCoordinator
   })
   combatReflex.start()
 
@@ -137,7 +149,9 @@ function registerCommands(bot, scheduler, router, options = {}) {
     bot,
     scheduler,
     combatReflex,
-    deathTracker
+    deathTracker,
+    actionCoordinator,
+    buildPlanStore: options.buildPlanStore
   })
 
   async function runSkill(name, input, context) {
@@ -968,7 +982,9 @@ function registerCommands(bot, scheduler, router, options = {}) {
     skillRegistry,
     commandQueue,
     combatReflex,
+    actionCoordinator,
     locationStore: skillRegistry.locationStore,
+    buildPlanStore: skillRegistry.buildPlanStore,
     chatBridge,
     deathTracker,
     brainMode,

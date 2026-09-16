@@ -1,9 +1,15 @@
 const { goals } = require('mineflayer-pathfinder')
 const {
+  entitiesAtPosition,
   isPositionClearOfEntities
 } = require('../perception/isPositionClear')
 const { isClearablePlant } = require('./clearBuildSite')
 const { breakVegetation } = require('../farming/gatherSeeds')
+const {
+  inventoryCount,
+  waitForBlock,
+  waitForCondition
+} = require('../actions/verifiedState')
 
 const SUPPORT_OFFSETS = [
   [0, -1, 0],
@@ -13,6 +19,12 @@ const SUPPORT_OFFSETS = [
   [1, 0, 0],
   [0, 1, 0]
 ]
+const MAX_PLACE_ATTEMPTS = 2
+const ALTERNATE_PLACED_NAMES = {
+  torch: ['torch', 'wall_torch'],
+  soul_torch: ['soul_torch', 'soul_wall_torch'],
+  redstone_torch: ['redstone_torch', 'redstone_wall_torch']
+}
 
 function throwIfCancelled(signal) {
   if (signal && signal.aborted) {
@@ -93,6 +105,61 @@ function findPlaceablePosition(bot, radius = 4) {
   return null
 }
 
+function isSelf(bot, entity) {
+  return entity === bot.entity || (
+    entity && bot.entity && entity.id !== undefined && entity.id === bot.entity.id
+  )
+}
+
+function walkableStandPositions(bot, target, radius = 3) {
+  const baseY = Math.floor(bot.entity.position.y)
+  const candidates = []
+
+  for (let radiusStep = 1; radiusStep <= radius; radiusStep += 1) {
+    for (let x = -radiusStep; x <= radiusStep; x += 1) {
+      for (let z = -radiusStep; z <= radiusStep; z += 1) {
+        if (Math.max(Math.abs(x), Math.abs(z)) !== radiusStep) continue
+        for (const y of [baseY, baseY + 1, baseY - 1]) {
+          const feet = target.offset(x, y - target.y, z)
+          const footBlock = bot.blockAt(feet)
+          const headBlock = bot.blockAt(feet.offset(0, 1, 0))
+          const support = bot.blockAt(feet.offset(0, -1, 0))
+          if (
+            footBlock && isReplaceable(footBlock) &&
+            headBlock && isReplaceable(headBlock) &&
+            support && support.boundingBox === 'block' &&
+            isPositionClearOfEntities(bot, feet)
+          ) {
+            candidates.push(feet)
+          }
+        }
+      }
+    }
+  }
+
+  return candidates
+}
+
+async function moveSelfOffTarget(bot, target, signal) {
+  const blocking = entitiesAtPosition(bot, target)
+  if (!blocking.some((entity) => isSelf(bot, entity))) return
+
+  const stand = walkableStandPositions(bot, target)[0]
+  if (!stand) {
+    throw new Error(`${target} is occupied by Earl and no safe adjacent stand position exists`)
+  }
+
+  await bot.pathfinder.goto(new goals.GoalNear(stand.x, stand.y, stand.z, 0))
+  throwIfCancelled(signal)
+  if (entitiesAtPosition(bot, target).some((entity) => isSelf(bot, entity))) {
+    throw new Error(`Earl could not move clear of ${target}`)
+  }
+}
+
+function acceptablePlacedNames(blockName) {
+  return new Set(ALTERNATE_PLACED_NAMES[blockName] || [blockName])
+}
+
 async function placeBlock(bot, blockName, position = null, options = {}) {
   const target = position || findPlaceablePosition(bot)
 
@@ -139,6 +206,8 @@ async function placeBlockAt(bot, blockName, position, options = {}) {
     throw new Error(`${target} is occupied by ${currentBlock.name}`)
   }
 
+  await moveSelfOffTarget(bot, target, signal)
+
   if (!isPositionClearOfEntities(bot, target)) {
     throw new Error(`${target} is occupied by an entity`)
   }
@@ -164,26 +233,74 @@ async function placeBlockAt(bot, blockName, position, options = {}) {
 
   throwIfCancelled(signal)
 
-  const supportBlock = findSupportBlock(bot, target)
+  const beforeCount = inventoryCount(bot, blockName)
+  const acceptedNames = acceptablePlacedNames(blockName)
+  let lastError = null
 
-  if (!supportBlock) {
-    throw new Error(`${target} has no adjacent support block`)
+  for (let attempt = 1; attempt <= MAX_PLACE_ATTEMPTS; attempt += 1) {
+    throwIfCancelled(signal)
+    const supportBlock = findSupportBlock(bot, target)
+
+    if (!supportBlock) {
+      throw new Error(`${target} has no adjacent support block`)
+    }
+
+    await bot.equip(item, 'hand')
+    throwIfCancelled(signal)
+    const equipped = await waitForCondition(bot, () => (
+      bot.heldItem && bot.heldItem.name === blockName ? bot.heldItem : null
+    ), { signal, ticks: 4 })
+    if (!equipped) {
+      throw new Error(`could not keep ${blockName} equipped for placement`)
+    }
+
+    const faceVector = target.minus(supportBlock.position)
+    try {
+      await bot.placeBlock(supportBlock, faceVector)
+    } catch (error) {
+      lastError = error
+    }
+    throwIfCancelled(signal)
+
+    const placedBlock = await waitForBlock(
+      bot,
+      target,
+      (block) => Boolean(block && acceptedNames.has(block.name)),
+      { signal, ticks: 20 }
+    )
+    const afterCount = inventoryCount(bot, blockName)
+
+    if (placedBlock && acceptedNames.has(placedBlock.name)) {
+      return {
+        status: 'completed',
+        placed: true,
+        skipped: false,
+        attempts: attempt,
+        evidence: {
+          requestedBlock: blockName,
+          confirmedBlock: placedBlock.name,
+          inventoryBefore: beforeCount,
+          inventoryAfter: afterCount
+        }
+      }
+    }
+
+    if (!isCreative(bot) && afterCount < beforeCount) {
+      const error = new Error(
+        `placement at ${target} consumed ${blockName} but no supported block was confirmed`
+      )
+      error.code = 'PLACEMENT_CONSUMED_UNCONFIRMED'
+      throw error
+    }
+
+    if (attempt < MAX_PLACE_ATTEMPTS) {
+      console.log(
+        `[build] retrying ${blockName} at ${target}; no block or inventory change was confirmed.`
+      )
+    }
   }
 
-  await bot.equip(item, 'hand')
-  throwIfCancelled(signal)
-
-  const faceVector = target.minus(supportBlock.position)
-  await bot.placeBlock(supportBlock, faceVector)
-  throwIfCancelled(signal)
-
-  const placedBlock = bot.blockAt(target)
-
-  if (!placedBlock || placedBlock.name !== blockName) {
-    throw new Error(`placement at ${target} was not confirmed`)
-  }
-
-  return { placed: true, skipped: false }
+  throw lastError || new Error(`placement at ${target} was not confirmed`)
 }
 
 async function buildBlocks(

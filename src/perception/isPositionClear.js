@@ -1,9 +1,13 @@
-function isPositionClearOfEntities(bot, blockPosition) {
+function entitiesAtPosition(bot, blockPosition) {
   const blockMaxX = blockPosition.x + 1
   const blockMaxY = blockPosition.y + 1
   const blockMaxZ = blockPosition.z + 1
 
-  for (const entity of Object.values(bot.entities || {})) {
+  const candidates = [...Object.values(bot.entities || {})]
+  if (bot.entity && !candidates.includes(bot.entity)) candidates.push(bot.entity)
+  const blocking = []
+
+  for (const entity of candidates) {
     if (!entity || !entity.position) continue
 
     const width = entity.width || 0.6
@@ -23,10 +27,14 @@ function isPositionClearOfEntities(bot, blockPosition) {
       entityMinZ < blockMaxZ &&
       entityMaxZ > blockPosition.z
 
-    if (intersects) return false
+    if (intersects) blocking.push(entity)
   }
 
-  return true
+  return blocking
 }
 
-module.exports = { isPositionClearOfEntities }
+function isPositionClearOfEntities(bot, blockPosition) {
+  return entitiesAtPosition(bot, blockPosition).length === 0
+}
+
+module.exports = { entitiesAtPosition, isPositionClearOfEntities }

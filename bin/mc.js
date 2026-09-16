@@ -11,15 +11,17 @@ function usage(message) {
   console.error([
     'Usage: node bin/mc.js <command> [arguments]',
     'Observe: status, inventory, nearby [range], scene [range], skills',
-    'Messages: read_chat, commands, wait [seconds], listen, claim ID, complete ID [result]',
-    '          chat MESSAGE',
+    'Messages: read_chat, commands [status], wait [seconds], listen, claim ID, complete ID [result]',
+    '          recover ID, fail ID [reason], chat MESSAGE',
     'Actions: follow PLAYER, collect BLOCK COUNT, craft ITEM COUNT, goto X Y Z',
     '         fight MOB, flee [distance], eat, pickup [count], sleep',
     '         recipes ITEM, use BLOCK, door [close|test], seeds [count], farm CROP COUNT',
-    'Building: site X Y Z WIDTH DEPTH [MARGIN], build_plan JSON, inspect_shelter JSON',
+    '         create_farm CROP X Y Z WIDTH DEPTH',
+    'Building: plan_create JSON, plan_get ID, plan_advance ID PHASE [NOTE]',
+    '          site X Y Z WIDTH DEPTH [MARGIN], build_plan JSON, inspect_shelter JSON',
     '          smelt ITEM COUNT [fuel]',
     'Locations: mark NAME, marks, go_mark NAME, unmark NAME',
-    'Recovery: deaths, deathpoint, task, cancel',
+    'Recovery: deaths, deathpoint, task, actions, build_plans [status], cancel',
     'Autonomy: autonomy, autonomy_candidates, autonomy_on, autonomy_off, autonomy_tick',
     'Procedures: procedures [status], procedure_stage JSON, procedure_approve ID',
     '            procedure_reject ID REASON, procedure_run ID',
@@ -92,7 +94,7 @@ async function main() {
     case 'read_chat':
       return request('GET', `/chat?after=${integer(args[0], 0)}`)
     case 'commands':
-      return request('GET', '/commands')
+      return request('GET', `/commands?status=${args[0] || 'pending'}`)
     case 'wait':
     case 'wait_command':
       return request(
@@ -118,12 +120,20 @@ async function main() {
       return request('POST', `/commands/${integer(args[0])}/fail`, {
         error: args.slice(1).join(' ') || 'Hermes could not complete the request.'
       })
+    case 'recover':
+    case 'resume_command':
+      if (!args[0]) return usage('recover requires a command id.')
+      return request('POST', `/commands/${integer(args[0])}/resume`, {})
     case 'chat':
     case 'say':
       if (args.length === 0) return usage('chat requires a message.')
       return request('POST', '/action/chat', { message: args.join(' ') })
     case 'task':
       return request('GET', '/task')
+    case 'actions':
+      return request('GET', '/actions')
+    case 'build_plans':
+      return request('GET', `/build-plans?status=${args[0] || 'all'}`)
     case 'tasks':
       return request('GET', '/tasks')
     case 'cancel':
@@ -246,6 +256,35 @@ async function main() {
         depth: integer(args[4]),
         ...(args[5] === undefined ? {} : { margin: integer(args[5]) })
       }, true)
+    case 'plan_create': {
+      if (args.length === 0) return usage('plan_create requires JSON.')
+      let plan
+      try {
+        plan = JSON.parse(args.join(' '))
+      } catch {
+        throw new Error('Building plan must be valid JSON.')
+      }
+      return execute('create_build_plan', plan)
+    }
+    case 'plan_get':
+      if (!args[0]) return usage('plan_get requires an id.')
+      return execute('get_build_plan', { id: integer(args[0]) })
+    case 'plan_advance':
+      if (args.length < 2) return usage('plan_advance requires ID PHASE [NOTE].')
+      return execute('advance_build_plan', {
+        id: integer(args[0]),
+        phase: args[1],
+        ...(args.length > 2 ? { note: args.slice(2).join(' ') } : {})
+      })
+    case 'plan_site':
+      if (!args[0]) return usage('plan_site requires an id.')
+      return execute('prepare_build_plan_site', {
+        id: integer(args[0]),
+        ...(args[1] === undefined ? {} : { margin: integer(args[1]) })
+      }, true)
+    case 'plan_inspect':
+      if (!args[0]) return usage('plan_inspect requires an id.')
+      return execute('inspect_build_plan_shelter', { id: integer(args[0]) })
     case 'build_plan':
     case 'inspect_shelter': {
       if (args.length === 0) return usage(`${command} requires JSON.`)
@@ -275,6 +314,20 @@ async function main() {
       })
     case 'farm_all':
       return execute('farm_all_available', { crop: args[0] || 'all' })
+    case 'create_farm':
+      if (args.length < 6) {
+        return usage('create_farm requires CROP X Y Z WIDTH DEPTH.')
+      }
+      return execute('create_farm', {
+        crop: args[0],
+        origin: {
+          x: integer(args[1]),
+          y: integer(args[2]),
+          z: integer(args[3])
+        },
+        width: integer(args[4]),
+        depth: integer(args[5])
+      }, true)
     case 'smelt':
       if (!args[0]) return usage('smelt requires an item and amount.')
       return execute('smelt_item', {

@@ -6,7 +6,7 @@ function isDroppedItem(entity) {
     entity.position &&
     (
       entity.name === 'item' ||
-      entity.objectType === 'Item' ||
+      entity.displayName === 'Item' ||
       typeof entity.getDroppedItem === 'function'
     )
   )

@@ -91,6 +91,7 @@ node bin/mc.js bg_collect oak_log 8
 node bin/mc.js seeds 4
 node bin/mc.js craft wooden_pickaxe 1
 node bin/mc.js farm_all wheat
+node bin/mc.js create_farm wheat 100 64 200 5 5
 node bin/mc.js smelt raw_iron 4 coal
 node bin/mc.js fight zombie
 node bin/mc.js flee 16
@@ -108,16 +109,18 @@ When building a new wheat farm and wheat seeds are missing, use `node bin/mc.js 
 
 ## Building Contract V1
 
-Never improvise a house as an unordered series of block placements. For every
-room or shelter, use this sequence:
+Never improvise a house as an unordered series of block placements. Every
+house gets one persistent body-owned plan id. For every room or shelter, use
+this sequence:
 
 1. Survey the proposed footprint and choose one finished floor Y level.
 2. Define a rectangular plan with width/depth of at least 3, interior height of
    at least 2 blocks (3 preferred), and a non-corner door whose bottom is
    exactly one block above the finished floor.
-3. Call `validate_build_plan` before changing the world. Correct every reported
-   problem before continuing.
-4. Call `clear_build_site` for the entire footprint with a two-block margin.
+3. Call `create_build_plan` before changing the world. Keep its returned id and
+   use the stored definition for every phase. Never invent a second origin or
+   elevation after construction starts.
+4. Call `prepare_build_plan_site` with that id and a two-block margin.
    It removes grass, ferns, flowers, and other small plants directly. Do not
    build around vegetation. If `ready` is false, choose a flatter site or
    explicitly repair the reported raised/unsupported cells before building.
@@ -129,15 +132,34 @@ room or shelter, use this sequence:
 8. Fill window openings with glass, glass panes, fences, or iron bars.
 9. Add at least one chest or barrel, crafting table, furnace, and interior light
    source. Target block light 8 or higher throughout the walkable interior.
-10. Call `inspect_shelter`, repair every reported problem, then call
+10. Call `inspect_build_plan_shelter` with the plan id, repair every reported
+    problem, then call
     `traverse_nearby_door` with `returnThrough: true` to physically enter and
     exit. A house is not complete
     until both validation calls succeed and Earl has crossed its door.
 
-Use `node bin/mc.js build_plan JSON`, `node bin/mc.js site X Y Z WIDTH DEPTH 2`,
-`node bin/mc.js inspect_shelter JSON`, and `node bin/mc.js door test` for these
-contract operations. The same JSON plan must be reused for validation and final
-inspection so floor and door heights cannot drift apart.
+Use `node bin/mc.js plan_create JSON`, `node bin/mc.js plan_site ID 2`,
+`node bin/mc.js plan_inspect ID`, and `node bin/mc.js door test` for these
+contract operations. Advance the stored plan only after a phase is visibly
+verified. If a restart pauses a plan, inspect the stored plan and current world
+before resuming; never replay completed placement steps blindly.
+
+## Verified physical actions
+
+Only one movement, digging, crafting, placement, inventory-window, or combat
+action may own Earl's body at a time. Call a body skill and wait for its result
+before starting another physical skill. A `completed` result includes observed
+world or inventory evidence. Treat `partial` and `failed` as failures; inspect
+the evidence and current scene before choosing a recovery. Never claim success
+because a command returned without throwing.
+
+After a restart, claimed player requests appear as `needs_review`, not pending.
+Read them with `node bin/mc.js commands needs_review`; resume one only after
+checking the current world, using `node bin/mc.js recover ID`.
+
+Use `create_farm` for a new field. It requires a level dirt/grass footprint,
+water within four blocks of every cell, a hoe, and enough seeds. It preserves
+water and refuses solid obstructions rather than silently changing terrain.
 
 ## Memory and learning
 

@@ -454,6 +454,24 @@ test('collect all wheat selects the dedicated inspect-and-farm skill', () => {
   )
 })
 
+test('creating a farm selects the verified farm-construction skill', () => {
+  const definitions = [
+    { name: 'get_scene' },
+    { name: 'get_inventory' },
+    { name: 'get_farm_status' },
+    { name: 'farm_crops' },
+    { name: 'create_farm' }
+  ]
+  assert.deepEqual(
+    selectSkillTools('create a small wheat farm', definitions),
+    [
+      { name: 'get_scene' },
+      { name: 'get_inventory' },
+      { name: 'create_farm' }
+    ]
+  )
+})
+
 test('simple action prompts resolve directly without waiting for Ollama', async () => {
   const provider = createProvider([])
   const calls = []

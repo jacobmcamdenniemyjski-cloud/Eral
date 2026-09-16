@@ -185,6 +185,15 @@ class EarlApiServer {
             : null,
           autonomy: this.autonomyController
             ? this.autonomyController.getStatus()
+            : null,
+          actions: this.runtime.actionCoordinator
+            ? this.runtime.actionCoordinator.getStatus()
+            : null,
+          buildPlans: this.runtime.buildPlanStore
+            ? this.runtime.buildPlanStore.summary()
+            : null,
+          survival: this.runtime.survivalRecovery
+            ? this.runtime.survivalRecovery.getStatus()
             : null
         }
       })
@@ -203,6 +212,26 @@ class EarlApiServer {
         data: this.autonomyController
           ? this.autonomyController.getStatus()
           : null
+      })
+    }
+
+    if (path === '/actions') {
+      return respond(response, 200, {
+        ok: true,
+        data: this.runtime.actionCoordinator
+          ? this.runtime.actionCoordinator.getStatus()
+          : null
+      })
+    }
+
+    if (path === '/build-plans') {
+      return respond(response, 200, {
+        ok: true,
+        data: this.runtime.buildPlanStore
+          ? this.runtime.buildPlanStore.list({
+              status: url.searchParams.get('status') || 'all'
+            })
+          : []
       })
     }
 
@@ -485,7 +514,7 @@ class EarlApiServer {
     }
 
     const commandAction = path.match(
-      /^\/commands\/(\d+)\/(claim|complete|fail)$/
+      /^\/commands\/(\d+)\/(claim|complete|fail|resume)$/
     )
     if (commandAction) {
       const [, id, action] = commandAction
@@ -493,7 +522,11 @@ class EarlApiServer {
         ? this.chatBridge.claimCommand(id)
         : action === 'complete'
           ? this.chatBridge.completeCommand(id, body.result || null)
-          : this.chatBridge.failCommand(id, body.error || 'failed')
+          : action === 'resume'
+            ? this.chatBridge.resumeCommand(id, {
+                prefix: body.prefix || 'Resume this recovered request safely: '
+              })
+            : this.chatBridge.failCommand(id, body.error || 'failed')
       return respond(response, 200, { ok: true, data: entry })
     }
 
