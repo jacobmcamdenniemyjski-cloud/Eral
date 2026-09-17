@@ -20,6 +20,28 @@ function distance(left, right) {
   )
 }
 
+async function moveToSide(bot, side, signal) {
+  const radii = [0, 1]
+  let lastError = null
+
+  for (const radius of radii) {
+    try {
+      await bot.pathfinder.goto(
+        new goals.GoalNear(side.x, side.y, side.z, radius)
+      )
+      if (signal && signal.aborted) throw signal.reason
+      if (distance(bot.entity.position, side) <= 1.75) return
+    } catch (error) {
+      if (signal && signal.aborted) throw error
+      lastError = error
+    }
+  }
+
+  throw lastError || new Error(
+    `could not reach the doorway side at ${side.x},${side.y},${side.z}`
+  )
+}
+
 function doorSides(block) {
   const properties = DoorOpener.blockProperties(block)
   const [x, z] = FACING_OFFSETS[properties.facing] || FACING_OFFSETS.north
@@ -79,17 +101,13 @@ async function traverseDoor(bot, options = {}) {
   const nearSide = sides[0]
   const farSide = sides[1]
 
-  if (distance(bot.entity.position, nearSide) > 1.5) {
-    await bot.pathfinder.goto(
-      new goals.GoalNear(nearSide.x, nearSide.y, nearSide.z, 1)
-    )
+  if (distance(bot.entity.position, nearSide) > 1.75) {
+    await moveToSide(bot, nearSide, signal)
   }
   if (signal && signal.aborted) throw signal.reason
 
   await opener.setOpen(door, true)
-  await bot.pathfinder.goto(
-    new goals.GoalNear(farSide.x, farSide.y, farSide.z, 0)
-  )
+  await moveToSide(bot, farSide, signal)
   if (signal && signal.aborted) throw signal.reason
 
   const finalDistance = distance(bot.entity.position, farSide)
@@ -99,9 +117,7 @@ async function traverseDoor(bot, options = {}) {
 
   if (returnThrough) {
     await opener.setOpen(door, true)
-    await bot.pathfinder.goto(
-      new goals.GoalNear(nearSide.x, nearSide.y, nearSide.z, 0)
-    )
+    await moveToSide(bot, nearSide, signal)
     const returnDistance = distance(bot.entity.position, nearSide)
     if (returnDistance > 1.25) {
       throw new Error(
@@ -125,3 +141,4 @@ async function traverseDoor(bot, options = {}) {
 module.exports = traverseDoor
 module.exports.doorSides = doorSides
 module.exports.findNearbyDoor = findNearbyDoor
+module.exports.moveToSide = moveToSide
