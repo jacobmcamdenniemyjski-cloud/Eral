@@ -38,6 +38,7 @@ const eatNow = require('../survival/eatNow')
 const fleeFromHostiles = require('../movement/fleeFromHostiles')
 const traverseDoor = require('../movement/traverseDoor')
 const useBlock = require('../world/useBlock')
+const breakBlockAt = require('../world/breakBlockAt')
 const { resolveResourceName } = require('../core/parseItemRequest')
 const SkillRegistry = require('./SkillRegistry')
 
@@ -652,6 +653,21 @@ function createSkillRegistry(options) {
     timeoutMs: 30000,
     safety: 'inventory_write',
     execute: async ({ item }) => equipItem(bot, normalize(item, 'item'))
+  })
+
+  registry.register({
+    name: 'break_block_at',
+    description: 'Break the block at exact integer coordinates and verify that the server removed it. Use this to correct a misplaced block; use gather_block for resource collection.',
+    inputSchema: objectSchema({
+      position: positionSchema
+    }, ['position']),
+    timeoutMs: 60000,
+    safety: 'world_write',
+    execute: async ({ position }, context) => breakBlockAt(
+      bot,
+      position,
+      { signal: context.signal }
+    )
   })
 
   registry.register({

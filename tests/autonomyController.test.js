@@ -176,3 +176,18 @@ test('healthy Earl may choose a nonessential project instead of busywork', async
     candidate.drive === 'comfort' && candidate.title.includes('rest')
   )))
 })
+
+test('autonomy temporarily suppresses an intention that reported a blocker', async () => {
+  const { controller, chatBridge } = createController()
+  await controller.tick()
+  const first = controller.getStatus().current
+  chatBridge.completeCommand(first.commandId, 'BLOCKED: I cannot leave through the sealed door.')
+  await controller.tick()
+
+  const candidates = controller.generateCandidates(observation())
+  assert.equal(
+    candidates.some((candidate) => candidate.title === first.title),
+    false
+  )
+  assert.equal(controller.getStatus().recentHistory[0].blocked, true)
+})

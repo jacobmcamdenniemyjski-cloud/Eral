@@ -522,6 +522,23 @@ test('direct skill resolver handles coordinates and common amount wording', () =
   )
 })
 
+test('block removal exposes and directly resolves the validated coordinate skill', () => {
+  const definitions = [
+    { name: 'break_block_at' },
+    { name: 'get_scene' },
+    { name: 'gather_block' }
+  ]
+
+  assert.deepEqual(
+    selectSkillTools('remove the block at 343 64 442', definitions),
+    [{ name: 'break_block_at' }, { name: 'get_scene' }]
+  )
+  assert.deepEqual(resolveDirectSkillCall('break block at 343 64 442'), {
+    name: 'break_block_at',
+    input: { position: { x: 343, y: 64, z: 442 } }
+  })
+})
+
 test('selector exposes focused saved-location and sleep tools', () => {
   const definitions = [
     { name: 'get_status' },

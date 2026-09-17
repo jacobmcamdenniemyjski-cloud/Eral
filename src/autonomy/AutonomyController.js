@@ -20,6 +20,9 @@ const FOOD_NAMES = new Set([
   'golden_carrot', 'apple', 'melon_slice', 'pumpkin_pie', 'cookie'
 ])
 
+const BLOCKED_OUTCOME_PATTERN = /\b(?:blocked|cannot|can't|could not|no path|sealed|stuck|unreachable|requires? (?:the )?player)\b/i
+const BLOCKED_INTENTION_COOLDOWN_MS = 30 * 60 * 1000
+
 function clone(value) {
   return value === undefined ? undefined : JSON.parse(JSON.stringify(value))
 }
@@ -250,6 +253,12 @@ class AutonomyController {
     const candidates = []
 
     const add = (drive, baseScore, title, reason, guidance) => {
+      const recentlyBlocked = this.state.history.some((entry) => (
+        entry.title === title &&
+        entry.blocked === true &&
+        this.now() - Date.parse(entry.updatedAt) < BLOCKED_INTENTION_COOLDOWN_MS
+      ))
+      if (recentlyBlocked) return
       const weight = Number(this.drives[drive]) || 0
       const recentCount = this.state.history.slice(-6)
         .filter((entry) => entry.drive === drive).length
@@ -425,6 +434,10 @@ class AutonomyController {
     if (!current) return null
     current.status = status
     current.outcome = clone(outcome)
+    const outcomeText = typeof outcome === 'string'
+      ? outcome
+      : JSON.stringify(outcome || '')
+    current.blocked = BLOCKED_OUTCOME_PATTERN.test(outcomeText)
     current.updatedAt = new Date(this.now()).toISOString()
     this.state.history.push(clone(current))
     this.state.history = this.state.history.slice(-50)
@@ -557,3 +570,5 @@ class AutonomyController {
 module.exports = AutonomyController
 module.exports.DEFAULT_DRIVES = DEFAULT_DRIVES
 module.exports.isNight = isNight
+module.exports.BLOCKED_OUTCOME_PATTERN = BLOCKED_OUTCOME_PATTERN
+module.exports.BLOCKED_INTENTION_COOLDOWN_MS = BLOCKED_INTENTION_COOLDOWN_MS

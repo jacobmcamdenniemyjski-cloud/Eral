@@ -36,6 +36,10 @@ const TOOL_GROUPS = [
     names: ['get_farm_status', 'farm_crops']
   },
   {
+    pattern: /\b(break|remove)\b.*\b(block|at|coordinate)/i,
+    names: ['break_block_at', 'get_scene']
+  },
+  {
     pattern: /\b(gather|mine|chop|collect|dig)\b/i,
     names: ['gather_block']
   },

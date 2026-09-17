@@ -253,6 +253,22 @@ function resolveDirectSkillCall(prompt, username) {
     }
   }
 
+  const breakCoordinates = text.match(
+    /^(?:break|remove)(?: the)?(?: block)?(?: at)?\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)$/
+  )
+  if (breakCoordinates) {
+    return {
+      name: 'break_block_at',
+      input: {
+        position: {
+          x: Number(breakCoordinates[1]),
+          y: Number(breakCoordinates[2]),
+          z: Number(breakCoordinates[3])
+        }
+      }
+    }
+  }
+
   if (/^(?:go|return)(?: back)? home$/.test(text)) {
     return { name: 'go_to_location', input: { name: 'home' } }
   }
