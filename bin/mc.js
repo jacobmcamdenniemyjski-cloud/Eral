@@ -16,12 +16,15 @@ function usage(message) {
     'Actions: follow PLAYER, collect BLOCK COUNT, craft ITEM COUNT, goto X Y Z',
     '         fight MOB, flee [distance], eat, pickup [count], sleep',
     '         recipes ITEM, use BLOCK, door [close|test], seeds [count], farm CROP COUNT',
-    '         create_farm CROP X Y Z WIDTH DEPTH',
+    '         create_farm CROP X Y Z WIDTH DEPTH, inspect_block X Y Z',
+    '         break_block X Y Z EXPECTED_BLOCK',
     'Building: plan_create JSON, plan_get ID, plan_advance ID PHASE [NOTE]',
-    '          site X Y Z WIDTH DEPTH [MARGIN], build_plan JSON, inspect_shelter JSON',
+    '          plan_place ID PHASE BLOCK X Y Z, plan_resume ID REASON, plan_abort ID REASON',
+    '          inspect_site X Y Z WIDTH DEPTH [MARGIN], clear_site X Y Z WIDTH DEPTH [MARGIN]',
+    '          build_plan JSON, inspect_shelter JSON',
     '          smelt ITEM COUNT [fuel]',
     'Locations: mark NAME, marks, go_mark NAME, unmark NAME',
-    'Recovery: deaths, deathpoint, task, actions, build_plans [status], cancel',
+    'Recovery: deaths, deathpoint, recovery, recovery_clear, task, actions, build_plans [status], cancel',
     'Autonomy: autonomy, autonomy_candidates, autonomy_on, autonomy_off, autonomy_tick',
     'Procedures: procedures [status], procedure_stage JSON, procedure_approve ID',
     '            procedure_reject ID REASON, procedure_run ID',
@@ -232,6 +235,27 @@ async function main() {
         block: args[0],
         maxDistance: 16
       })
+    case 'inspect_block':
+      if (args.length < 3) return usage('inspect_block requires X Y Z.')
+      return execute('inspect_block_at', {
+        position: {
+          x: integer(args[0]),
+          y: integer(args[1]),
+          z: integer(args[2])
+        }
+      })
+    case 'break_block':
+      if (args.length < 4) {
+        return usage('break_block requires X Y Z EXPECTED_BLOCK.')
+      }
+      return execute('break_block_at', {
+        position: {
+          x: integer(args[0]),
+          y: integer(args[1]),
+          z: integer(args[2])
+        },
+        expectedBlock: args[3]
+      })
     case 'door':
     case 'traverse_door':
       return execute('traverse_nearby_door', {
@@ -241,10 +265,23 @@ async function main() {
         ),
         returnThrough: String(args[0] || '').toLowerCase() === 'test'
       })
-    case 'site':
+    case 'inspect_site':
+      if (args.length < 5) {
+        return usage('inspect_site requires X Y Z WIDTH DEPTH [MARGIN].')
+      }
+      return execute('inspect_build_site', {
+        origin: {
+          x: integer(args[0]),
+          y: integer(args[1]),
+          z: integer(args[2])
+        },
+        width: integer(args[3]),
+        depth: integer(args[4]),
+        ...(args[5] === undefined ? {} : { margin: integer(args[5]) })
+      })
     case 'clear_site':
       if (args.length < 5) {
-        return usage('site requires X Y Z WIDTH DEPTH [MARGIN].')
+        return usage('clear_site requires X Y Z WIDTH DEPTH [MARGIN].')
       }
       return execute('clear_build_site', {
         origin: {
@@ -275,6 +312,32 @@ async function main() {
         id: integer(args[0]),
         phase: args[1],
         ...(args.length > 2 ? { note: args.slice(2).join(' ') } : {})
+      })
+    case 'plan_place':
+      if (args.length < 6) {
+        return usage('plan_place requires ID PHASE BLOCK X Y Z.')
+      }
+      return execute('place_build_plan_block', {
+        id: integer(args[0]),
+        phase: args[1],
+        block: args[2],
+        position: {
+          x: integer(args[3]),
+          y: integer(args[4]),
+          z: integer(args[5])
+        }
+      })
+    case 'plan_resume':
+      if (args.length < 2) return usage('plan_resume requires ID REASON.')
+      return execute('resume_build_plan', {
+        id: integer(args[0]),
+        reason: args.slice(1).join(' ')
+      })
+    case 'plan_abort':
+      if (args.length < 2) return usage('plan_abort requires ID REASON.')
+      return execute('abort_build_plan', {
+        id: integer(args[0]),
+        reason: args.slice(1).join(' ')
       })
     case 'plan_site':
       if (!args[0]) return usage('plan_site requires an id.')
@@ -349,6 +412,10 @@ async function main() {
       return execute('forget_location', { name: args.join(' ') })
     case 'deaths':
       return request('GET', '/deaths')
+    case 'recovery':
+      return execute('get_survival_recovery', {})
+    case 'recovery_clear':
+      return execute('clear_survival_recovery', {})
     case 'deathpoint':
       return execute('return_to_death', {}, true)
     case 'exec':

@@ -3,6 +3,13 @@ const path = require('node:path')
 const eatNow = require('./eatNow')
 const fleeFromHostiles = require('../movement/fleeFromHostiles')
 
+const RECOVERY_ALLOWED_SKILLS = new Set([
+  'get_status', 'get_inventory', 'get_scene', 'scan_nearby', 'find_block',
+  'get_task', 'get_saved_locations', 'get_survival_recovery',
+  'clear_survival_recovery', 'stop_all', 'flee_from_hostiles', 'eat_now',
+  'go_to', 'go_to_location', 'sleep_in_bed', 'traverse_nearby_door'
+])
+
 function saveJson(filePath, value) {
   if (!filePath) return
   fs.mkdirSync(path.dirname(filePath), { recursive: true })
@@ -62,9 +69,23 @@ class SurvivalRecovery {
     this.state.recentDeaths = this.state.recentDeaths
       .map(Number)
       .filter((time) => time >= cutoff)
-    if (this.state.recoveryMode && this.state.recoveryUntil <= this.now()) {
-      this.state.recoveryMode = false
-      this.state.lastReason = 'Recovery cooldown completed.'
+  }
+
+  guardSkill(name, safety = 'normal') {
+    this.pruneDeaths()
+    if (!this.state.recoveryMode) return { allowed: true }
+    if (
+      RECOVERY_ALLOWED_SKILLS.has(name) ||
+      ['read_only', 'control'].includes(safety)
+    ) {
+      return { allowed: true }
+    }
+    return {
+      allowed: false,
+      code: 'SURVIVAL_RECOVERY_ACTIVE',
+      message: `${name} is blocked while survival recovery is active. ` +
+        'Earl may only escape, eat, return home, sleep, inspect state, or stop. ' +
+        'The player must clear recovery after the area is safe.'
     }
   }
 
@@ -74,6 +95,18 @@ class SurvivalRecovery {
     this.bot.on('death', this.onDeath)
     this.bot.on('health', this.onHealth)
     this.bot.on('spawn', this.onSpawn)
+    if (
+      this.state.recoveryMode &&
+      this.autonomyController &&
+      typeof this.autonomyController.setSafetyHold === 'function'
+    ) {
+      void Promise.resolve(this.autonomyController.setSafetyHold(
+        true,
+        this.state.lastReason || 'survival recovery remains active'
+      )).catch((error) => {
+        console.error(`[survival] could not hold autonomy: ${error.message}`)
+      })
+    }
   }
 
   stop() {
@@ -89,12 +122,20 @@ class SurvivalRecovery {
     this.state.recoveryUntil = this.now() + this.recoveryCooldownMs
     this.state.lastReason = reason
     this.save()
-    if (this.combatReflex) this.combatReflex.suppress(this.recoveryCooldownMs)
+    if (this.combatReflex) {
+      // Recovery is intentionally sticky. A fixed five-minute timer allowed
+      // Earl to resume work into the same hostile area and die again.
+      this.combatReflex.suppress(365 * 24 * 60 * 60 * 1000)
+    }
     if (this.actionCoordinator) {
       await this.actionCoordinator.cancelAll(reason)
     }
     if (this.autonomyController) {
-      await this.autonomyController.interrupt(reason)
+      if (typeof this.autonomyController.setSafetyHold === 'function') {
+        await this.autonomyController.setSafetyHold(true, reason)
+      } else {
+        await this.autonomyController.interrupt(reason)
+      }
     }
   }
 
@@ -113,9 +154,19 @@ class SurvivalRecovery {
   onSpawn() {
     this.pruneDeaths()
     if (this.state.recoveryMode && this.combatReflex) {
-      this.combatReflex.suppress(
-        Math.max(1000, this.state.recoveryUntil - this.now())
-      )
+      this.combatReflex.suppress(365 * 24 * 60 * 60 * 1000)
+    }
+    if (
+      this.state.recoveryMode &&
+      this.autonomyController &&
+      typeof this.autonomyController.setSafetyHold === 'function'
+    ) {
+      void Promise.resolve(this.autonomyController.setSafetyHold(
+        true,
+        this.state.lastReason || 'survival recovery remains active'
+      )).catch((error) => {
+        console.error(`[survival] could not hold autonomy: ${error.message}`)
+      })
     }
   }
 
@@ -180,6 +231,18 @@ class SurvivalRecovery {
     this.state.recoveryUntil = 0
     this.state.recentDeaths = []
     this.state.lastReason = 'Recovery mode cleared by player.'
+    if (this.combatReflex) this.combatReflex.suppress(0)
+    if (
+      this.autonomyController &&
+      typeof this.autonomyController.setSafetyHold === 'function'
+    ) {
+      void Promise.resolve(this.autonomyController.setSafetyHold(
+        false,
+        'survival recovery cleared by player'
+      )).catch((error) => {
+        console.error(`[survival] could not resume autonomy: ${error.message}`)
+      })
+    }
     this.save()
     return this.getStatus()
   }
@@ -188,6 +251,9 @@ class SurvivalRecovery {
     this.pruneDeaths()
     return {
       ...this.state,
+      minimumCooldownElapsed: this.state.recoveryMode
+        ? this.now() >= this.state.recoveryUntil
+        : true,
       recentDeathCount: this.state.recentDeaths.length,
       responding: this.responding,
       persistent: Boolean(this.filePath)

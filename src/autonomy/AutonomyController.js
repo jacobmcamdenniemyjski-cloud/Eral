@@ -20,6 +20,8 @@ const FOOD_NAMES = new Set([
   'golden_carrot', 'apple', 'melon_slice', 'pumpkin_pie', 'cookie'
 ])
 
+const DEFAULT_INTENTION_COOLDOWN_MS = 10 * 60 * 1000
+
 function clone(value) {
   return value === undefined ? undefined : JSON.parse(JSON.stringify(value))
 }
@@ -58,10 +60,9 @@ class AutonomyController {
     this.isBusy = options.isBusy || (() => false)
     this.filePath = options.filePath || null
     this.intervalMs = Math.max(Number(options.intervalMs) || 30000, 1000)
-    this.minimumIntentIntervalMs = Math.max(
-      Number(options.minimumIntentIntervalMs) || 120000,
-      0
-    )
+    this.minimumIntentIntervalMs = options.minimumIntentIntervalMs === undefined
+      ? 120000
+      : Math.max(Number(options.minimumIntentIntervalMs) || 0, 0)
     this.now = options.now || Date.now
     this.random = options.random || Math.random
     this.observeOverride = options.observe || null
@@ -69,6 +70,7 @@ class AutonomyController {
     this.timer = null
     this.runningTick = null
     this.urgentReason = null
+    this.safetyHold = false
     this.state = {
       version: 1,
       enabled: Boolean(options.enabled),
@@ -142,6 +144,7 @@ class AutonomyController {
     return {
       enabled: this.state.enabled,
       urgentReason: this.urgentReason,
+      safetyHold: this.safetyHold,
       current: clone(this.state.current),
       recentHistory: clone(this.state.history.slice(-10).reverse()),
       drives: clone(this.drives),
@@ -214,6 +217,7 @@ class AutonomyController {
       home: home ? { ...home, distance: homeDistance } : null,
       farm,
       fighting: combat.fighting,
+      sleeping: Boolean(this.bot.isSleeping),
       physicalTask: this.taskManager ? this.taskManager.getCurrent() : null,
       commandQueueBusy: Boolean(this.isBusy())
     }
@@ -244,12 +248,35 @@ class AutonomyController {
       (total, crop) => total + (Number(crop.mature) || 0),
       0
     )
+    const growingCrops = farmCrops.reduce((total, crop) => {
+      const planted = Number(crop.total ?? crop.count) || 0
+      const mature = Number(crop.mature) || 0
+      return total + Math.max(0, planted - mature)
+    }, 0)
     const emptyFarmland = snapshot.farm
       ? Number(snapshot.farm.emptyFarmland) || 0
       : 0
     const candidates = []
 
-    const add = (drive, baseScore, title, reason, guidance) => {
+    const recentlyFinished = (drive, title, cooldownMs) => {
+      if (!cooldownMs) return false
+      return this.state.history.some((entry) => (
+        entry.drive === drive &&
+        entry.title === title &&
+        ['completed', 'failed'].includes(entry.status) &&
+        this.now() - Date.parse(entry.updatedAt) < cooldownMs
+      ))
+    }
+
+    const add = (
+      drive,
+      baseScore,
+      title,
+      reason,
+      guidance,
+      cooldownMs = DEFAULT_INTENTION_COOLDOWN_MS
+    ) => {
+      if (recentlyFinished(drive, title, cooldownMs)) return
       const weight = Number(this.drives[drive]) || 0
       const recentCount = this.state.history.slice(-6)
         .filter((entry) => entry.drive === drive).length
@@ -263,12 +290,16 @@ class AutonomyController {
       })
     }
 
-    if (snapshot.food <= 12 || foodItems < 3) {
+    if (
+      snapshot.food <= 12 ||
+      (foodItems < 3 && matureCrops === 0 && growingCrops === 0)
+    ) {
       add(
         'food_security', 88,
         'secure a reliable food supply',
         `Food level is ${snapshot.food}; carried food supply is ${foodItems}.`,
-        'Inspect nearby food and the farm, then obtain, prepare, or grow food safely.'
+        'Inspect nearby food and the farm, then obtain, prepare, or grow food safely.',
+        snapshot.food <= 8 ? 0 : DEFAULT_INTENTION_COOLDOWN_MS
       )
     }
 
@@ -279,7 +310,7 @@ class AutonomyController {
         'No saved home location exists.',
         'Choose a safe site, establish a usable shelter, and mark it as home.'
       )
-    } else if (isNight(snapshot.timeOfDay)) {
+    } else if (isNight(snapshot.timeOfDay) && !snapshot.sleeping) {
       add(
         'safety', 66,
         'return home and make the night safe',
@@ -327,7 +358,7 @@ class AutonomyController {
           `${emptyFarmland} empty farmland blocks are visible nearby.`,
           'Inspect the empty spaces and available seeds before planting or repairing the field.'
         )
-      } else {
+      } else if (growingCrops === 0) {
         add(
           'food_security', 42,
           'inspect and improve the farm',
@@ -383,7 +414,7 @@ class AutonomyController {
       `Autonomous intention #${intention.id}: ${intention.title}.`,
       `Reason: ${intention.reason}`,
       intention.guidance,
-      'This is an intention, not a fixed command list. Observe current conditions, form a short adaptable plan, use only Earl validated skills, verify meaningful results, and stop if danger or a player request takes priority.'
+      'This is an intention, not a fixed command list. Observe current conditions, form a short adaptable plan, use only Earl validated skills, verify meaningful results, and stop if danger or a player request takes priority. Never wait or poll inside this intention for more than 60 seconds; finish with the current verified result so the command listener stays responsive.'
     ].join(' ')
   }
 
@@ -451,8 +482,9 @@ class AutonomyController {
     }
   }
 
-  async interrupt(reason = 'urgent interruption') {
+  async interrupt(reason = 'urgent interruption', options = {}) {
     this.urgentReason = reason
+    if (options.sticky) this.safetyHold = true
     const current = this.state.current
     if (current && current.status === 'active') {
       current.status = 'paused'
@@ -474,6 +506,7 @@ class AutonomyController {
   }
 
   async resume(reason = 'interruption cleared') {
+    if (this.safetyHold) return this.getStatus()
     this.urgentReason = null
     const current = this.state.current
     if (!current || current.status !== 'paused') return this.getStatus()
@@ -482,7 +515,7 @@ class AutonomyController {
     const command = this.commandForCurrent()
     if (command && command.status === 'paused') {
       this.chatBridge.resumeCommand(command.id, {
-        prefix: `Resume autonomous intention #${current.id} after interruption. `
+        prefix: `Resume autonomous intention #${current.id} after interruption.`
       })
     } else if (!command || ['completed', 'failed'].includes(command.status)) {
       const queued = this.chatBridge.enqueue(
@@ -499,6 +532,15 @@ class AutonomyController {
     current.resumeReason = reason
     this.save()
     return this.getStatus()
+  }
+
+  async setSafetyHold(active, reason = 'safety hold') {
+    if (active) {
+      this.safetyHold = true
+      return this.interrupt(reason, { sticky: true })
+    }
+    this.safetyHold = false
+    return this.resume(reason)
   }
 
   async tick() {
@@ -523,6 +565,10 @@ class AutonomyController {
     }
 
     if (this.state.current && this.state.current.status === 'paused') {
+      if (this.safetyHold) {
+        this.save()
+        return this.getStatus()
+      }
       await this.resume('conditions are safe again')
       return this.getStatus()
     }

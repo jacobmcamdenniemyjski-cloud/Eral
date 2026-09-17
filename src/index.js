@@ -40,9 +40,78 @@ function isLoopback(host) {
   return ['127.0.0.1', '::1', 'localhost'].includes(host)
 }
 
+function logFatal(label, error) {
+  const detail = error && error.stack ? error.stack : String(error)
+  console.error(`[fatal ${new Date().toISOString()}] ${label}: ${detail}`)
+}
+
+process.on('uncaughtException', (error) => {
+  logFatal('uncaughtException', error)
+  process.exit(1)
+})
+
+process.on('unhandledRejection', (error) => {
+  logFatal('unhandledRejection', error)
+  process.exit(1)
+})
+
 async function main() {
   const brainMode = getBrainMode()
   const bot = await createBot()
+  let shuttingDown = false
+  const connectionState = {
+    connected: false,
+    spawned: false,
+    lastEvent: 'created',
+    lastEventAt: new Date().toISOString(),
+    lastDisconnect: null
+  }
+  const connectionEvent = (event, details = null) => {
+    connectionState.lastEvent = event
+    connectionState.lastEventAt = new Date().toISOString()
+    if (details !== null) connectionState.details = details
+  }
+
+  bot.on('login', () => {
+    connectionState.connected = true
+    connectionEvent('login')
+  })
+  bot.on('spawn', () => {
+    connectionState.connected = true
+    connectionState.spawned = true
+    connectionState.lastDisconnect = null
+    connectionEvent('spawn')
+  })
+  bot.on('kicked', (reason) => {
+    let detail
+    try {
+      detail = typeof reason === 'string' ? reason : JSON.stringify(reason)
+    } catch {
+      detail = String(reason)
+    }
+    connectionEvent('kicked', detail)
+    console.error(`[minecraft ${connectionState.lastEventAt}] kicked: ${detail}`)
+  })
+  bot.on('error', (error) => {
+    connectionEvent('error', error.message)
+    console.error(`[minecraft ${connectionState.lastEventAt}] error: ${error.stack || error.message}`)
+  })
+  bot.on('end', (reason) => {
+    connectionState.connected = false
+    connectionState.spawned = false
+    connectionState.lastDisconnect = {
+      time: new Date().toISOString(),
+      reason: String(reason || 'connection ended')
+    }
+    connectionEvent('end', connectionState.lastDisconnect.reason)
+    console.error(
+      `[minecraft ${connectionState.lastEventAt}] connection ended: ` +
+      connectionState.lastDisconnect.reason
+    )
+    if (!shuttingDown) {
+      setTimeout(() => process.exit(1), 100).unref()
+    }
+  })
   const scheduler = new TaskScheduler()
   const router = new CommandRouter(bot)
   const dataDir = process.env.EARL_DATA_DIR || path.join(process.cwd(), 'data')
@@ -85,6 +154,7 @@ async function main() {
   runtime.taskManager = taskManager
   runtime.procedureStore = procedureStore
   runtime.buildPlanStore = buildPlanStore
+  runtime.connectionState = connectionState
 
   const autonomyController = new AutonomyController({
     bot,
@@ -116,6 +186,9 @@ async function main() {
   })
   survivalRecovery.start()
   runtime.survivalRecovery = survivalRecovery
+  runtime.skillRegistry.addExecutionGuard(({ name, skill }) => (
+    survivalRecovery.guardSkill(name, skill.safety)
+  ))
   runtime.skillRegistry.register({
     name: 'get_survival_recovery',
     description: 'Read critical-health and repeated-death recovery state.',
@@ -218,7 +291,6 @@ async function main() {
     }
   })
 
-  let shuttingDown = false
   async function shutdown() {
     if (shuttingDown) return
     shuttingDown = true
@@ -245,5 +317,7 @@ async function main() {
 
 main().catch((error) => {
   console.error('Earl failed to start:', error)
-  process.exitCode = 1
+  // A partially initialized Mineflayer client can otherwise keep running
+  // after an API bind/configuration failure and create a ghost second Earl.
+  process.exit(1)
 })

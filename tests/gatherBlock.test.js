@@ -175,3 +175,28 @@ test('gathering stops once if inventory becomes full during collection', async (
   assert.equal(collected.length, 1)
   assert.equal(chats.filter((message) => /inventory became full/i.test(message)).length, 1)
 })
+
+test('generic gathering refuses player-placeable building blocks', async () => {
+  const { bot, collected } = createBot()
+  bot.registry.blocksByName.oak_planks = { id: 5, drops: [5] }
+  bot.registry.itemsByName.oak_planks = { id: 5 }
+
+  const result = await gatherBlock(bot, 'oak_planks', 1)
+
+  assert.equal(result.status, 'failed')
+  assert.match(result.message, /exact coordinates/i)
+  assert.equal(collected.length, 0)
+})
+
+test('generic gathering skips protected coordinates without breaking them', async () => {
+  const { bot, collected } = createBot({
+    tool: { type: 257, name: 'iron_pickaxe' }
+  })
+  const result = await gatherBlock(bot, 'stone', 1, {
+    isProtectedPosition: () => 'inside protected home area'
+  })
+
+  assert.equal(result.status, 'failed')
+  assert.equal(result.protectedSkipped, 1)
+  assert.equal(collected.length, 0)
+})

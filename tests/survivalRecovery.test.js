@@ -38,3 +38,24 @@ test('three recent deaths pause unsafe work and suppress combat', async () => {
   assert.equal(suppressions.length, 1)
   assert.equal(interruptions.length, 1)
 })
+
+test('repeated-death recovery stays active and blocks unsafe skills until cleared', async () => {
+  const bot = new EventEmitter()
+  bot.health = 20
+  bot.entity = { position: {} }
+  let now = 1000
+  const recovery = new SurvivalRecovery(bot, {
+    now: () => now,
+    deathThreshold: 1,
+    combatReflex: { suppress() {} }
+  })
+
+  await recovery.onDeath()
+  now += 60 * 60 * 1000
+  assert.equal(recovery.getStatus().recoveryMode, true)
+  assert.equal(recovery.guardSkill('build_floor', 'world_write').allowed, false)
+  assert.equal(recovery.guardSkill('get_scene', 'read_only').allowed, true)
+
+  recovery.clear()
+  assert.equal(recovery.guardSkill('build_floor', 'world_write').allowed, true)
+})

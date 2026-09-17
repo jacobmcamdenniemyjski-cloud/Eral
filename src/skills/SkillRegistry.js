@@ -16,6 +16,15 @@ class SkillRegistry {
     })
     this.skills = new Map()
     this.actionCoordinator = options.actionCoordinator || null
+    this.executionGuards = []
+  }
+
+  addExecutionGuard(guard) {
+    if (typeof guard !== 'function') {
+      throw new Error('Skill execution guard must be a function.')
+    }
+    this.executionGuards.push(guard)
+    return this
   }
 
   register(definition) {
@@ -113,6 +122,24 @@ class SkillRegistry {
     const validation = this.validateInput(name, input)
     if (!validation.ok) return validation
     const skill = this.skills.get(name)
+
+    for (const guard of this.executionGuards) {
+      const decision = await guard({ name, skill, input, context })
+      if (decision === false || (decision && decision.allowed === false)) {
+        return {
+          ok: false,
+          skill: name,
+          error: {
+            code: decision && decision.code
+              ? decision.code
+              : 'SKILL_BLOCKED',
+            message: decision && decision.message
+              ? decision.message
+              : `${name} is currently blocked by Earl safety policy.`
+          }
+        }
+      }
+    }
 
     const controller = new AbortController()
     const externalSignal = context.signal

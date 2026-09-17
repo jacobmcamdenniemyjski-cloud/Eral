@@ -40,6 +40,22 @@ function sameGeometry(left, right) {
   return JSON.stringify(geometryOf(left)) === JSON.stringify(geometryOf(right))
 }
 
+function requiredCells(definition, phase) {
+  const cells = []
+  const origin = definition.origin
+  const maxX = origin.x + definition.width - 1
+  const maxZ = origin.z + definition.depth - 1
+  if (phase === 'floor' || phase === 'roof') {
+    const y = phase === 'floor'
+      ? origin.y
+      : origin.y + definition.interiorHeight + 1
+    for (let x = origin.x; x <= maxX; x += 1) {
+      for (let z = origin.z; z <= maxZ; z += 1) cells.push(`${x},${y},${z}`)
+    }
+  }
+  return cells
+}
+
 class BuildPlanStore {
   constructor(options = {}) {
     this.filePath = options.filePath || null
@@ -135,6 +151,29 @@ class BuildPlanStore {
       .map((plan) => this.publicPlan(plan))
   }
 
+  findProtectingPlan(position, options = {}) {
+    if (!position) return null
+    const margin = Math.max(0, Number(options.margin) || 0)
+    const x = Number(position.x)
+    const y = Number(position.y)
+    const z = Number(position.z)
+
+    const plan = this.plans.find((candidate) => {
+      if (candidate.status === 'failed') return false
+      const definition = candidate.definition || {}
+      const origin = definition.origin || {}
+      const roofY = Number(origin.y) + Number(definition.interiorHeight || 0) + 1
+      return x >= Number(origin.x) - margin &&
+        x < Number(origin.x) + Number(definition.width || 0) + margin &&
+        z >= Number(origin.z) - margin &&
+        z < Number(origin.z) + Number(definition.depth || 0) + margin &&
+        y >= Number(origin.y) - margin &&
+        y <= roofY + margin
+    })
+
+    return this.publicPlan(plan)
+  }
+
   require(id) {
     const plan = this.find(id)
     if (!plan) throw new Error(`Unknown build plan id: ${id}`)
@@ -170,6 +209,44 @@ class BuildPlanStore {
       error.code = 'BUILD_PHASE_SKIPPED'
       throw error
     }
+    const required = requiredCells(plan.definition, phase)
+    if (required.length > 0) {
+      const confirmed = new Set(
+        plan.confirmedPositions
+          .filter((entry) => entry.phase === phase)
+          .map((entry) => entry.key)
+      )
+      const missing = required.filter((cell) => !confirmed.has(cell))
+      if (missing.length > 0) {
+        const error = new Error(
+          `Build plan ${id} cannot advance to ${phase}; ` +
+          `${missing.length} required cell(s) are not server-confirmed.`
+        )
+        error.code = 'BUILD_PHASE_INCOMPLETE'
+        error.missing = missing.slice(0, 20)
+        throw error
+      }
+    }
+    if (phase === 'walls') {
+      const perimeter = (2 * plan.definition.width) +
+        (2 * plan.definition.depth) - 4
+      const fullWallCells = (perimeter * plan.definition.interiorHeight) - 2
+      const minimumWallCells = Math.max(1, fullWallCells - 4)
+      const confirmedWallCells = new Set(
+        plan.confirmedPositions
+          .filter((entry) => entry.phase === 'walls')
+          .map((entry) => entry.key)
+      ).size
+      if (confirmedWallCells < minimumWallCells) {
+        const error = new Error(
+          `Build plan ${id} cannot advance to walls; ` +
+          `${confirmedWallCells}/${minimumWallCells} required wall cells are server-confirmed ` +
+          '(up to four window openings are allowed).'
+        )
+        error.code = 'BUILD_PHASE_INCOMPLETE'
+        throw error
+      }
+    }
     const timestamp = new Date().toISOString()
     plan.phase = phase
     plan.status = phase === 'completed' ? 'completed' : 'active'
@@ -186,6 +263,39 @@ class BuildPlanStore {
     plan.status = 'paused'
     plan.pauseReason = String(reason || 'paused')
     plan.updatedAt = new Date().toISOString()
+    this.save()
+    return this.publicPlan(plan)
+  }
+
+  resume(id, reason = 'Plan reviewed and explicitly resumed.') {
+    const plan = this.require(id)
+    if (plan.status === 'completed') return this.publicPlan(plan)
+    if (plan.status === 'failed') {
+      throw new Error(`Build plan ${id} is failed and cannot be resumed.`)
+    }
+    plan.status = 'active'
+    plan.pauseReason = null
+    plan.updatedAt = new Date().toISOString()
+    plan.phaseHistory.push({
+      phase: plan.phase,
+      time: plan.updatedAt,
+      note: String(reason)
+    })
+    this.save()
+    return this.publicPlan(plan)
+  }
+
+  abort(id, reason = 'Build plan aborted by the player.') {
+    const plan = this.require(id)
+    if (plan.status === 'completed') {
+      throw new Error(`Completed build plan ${id} cannot be aborted.`)
+    }
+    const timestamp = new Date().toISOString()
+    plan.status = 'failed'
+    plan.pauseReason = null
+    plan.updatedAt = timestamp
+    plan.outcome = { reason: String(reason), aborted: true }
+    plan.failures.push({ time: timestamp, ...plan.outcome })
     this.save()
     return this.publicPlan(plan)
   }
@@ -241,3 +351,4 @@ class BuildPlanStore {
 module.exports = BuildPlanStore
 module.exports.PHASES = PHASES
 module.exports.sameGeometry = sameGeometry
+module.exports.requiredCells = requiredCells

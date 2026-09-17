@@ -199,7 +199,10 @@ class ChatBridge {
     if (!entry) throw new Error(`Unknown command id: ${id}`)
     if (!['paused', 'needs_review'].includes(entry.status)) return clone(entry)
     entry.status = 'pending'
-    entry.command = `${options.prefix || ''}${entry.command}`.trim()
+    const prefix = String(options.prefix || '').trim()
+    if (prefix && !entry.command.startsWith(prefix)) {
+      entry.command = `${prefix} ${entry.command}`.trim()
+    }
     entry.claimedAt = null
     entry.pauseReason = null
     entry.resumedAt = new Date().toISOString()

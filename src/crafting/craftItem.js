@@ -69,102 +69,135 @@ async function performCraft(
   throwIfCancelled(signal)
 
   const outputId = selection.recipe.result.id
-  const expectedIncrease = (selection.recipe.result.count || 1) *
-    selection.craftCount
-  const ingredientIds = selection.recipe.delta
+  const outputPerCraft = selection.recipe.result.count || 1
+  const requestedCrafts = Math.max(1, Number(selection.craftCount) || 1)
+  const ingredientIds = [...new Set(selection.recipe.delta
     .filter((change) => change.count < 0)
-    .map((change) => change.id)
-  const beforeOutput = inventoryCount(bot, outputId)
-  const beforeIngredients = new Map(
-    ingredientIds.map((id) => [id, inventoryCount(bot, id)])
-  )
-  let lastError = null
+    .map((change) => change.id))]
+  const transactionEvidence = []
+  const totalOutputBefore = inventoryCount(bot, outputId)
+  let reconciledAfterError = false
 
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    throwIfCancelled(signal)
-    let craftError = null
-    try {
-      await bot.craft(
-        selection.recipe,
-        selection.craftCount,
-        craftingTable
+  // Mineflayer may time out waiting for updateSlot even after the server has
+  // consumed ingredients. Submitting a whole batch makes an ambiguous result
+  // capable of destroying many recipes at once. Commit exactly one recipe,
+  // verify its inventory delta, and only then start the next transaction.
+  for (let craftIndex = 0; craftIndex < requestedCrafts; craftIndex += 1) {
+    let completed = false
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      throwIfCancelled(signal)
+      const outputBefore = inventoryCount(bot, outputId)
+      const ingredientBefore = new Map(
+        ingredientIds.map((id) => [id, inventoryCount(bot, id)])
       )
-    } catch (error) {
-      craftError = error
-      lastError = error
-    }
+      let craftError = null
 
-    throwIfCancelled(signal)
-    const confirmed = await waitForCondition(bot, () => {
-      const afterOutput = inventoryCount(bot, outputId)
-      return afterOutput - beforeOutput >= expectedIncrease
-        ? afterOutput
-        : null
-    }, { signal, ticks: 12 })
-    const afterOutput = inventoryCount(bot, outputId)
-    const ingredientChanges = ingredientIds.map((id) => ({
-      id,
-      before: beforeIngredients.get(id) || 0,
-      after: inventoryCount(bot, id)
-    }))
-    const inventoryChanged = afterOutput !== beforeOutput ||
-      ingredientChanges.some((entry) => entry.after !== entry.before)
+      try {
+        await bot.craft(selection.recipe, 1, craftingTable)
+      } catch (error) {
+        craftError = error
+      }
 
-    if (confirmed !== null) {
-      const result = {
-        status: 'completed',
-        item: itemName,
-        requested: amount,
-        crafted: afterOutput - beforeOutput,
-        attempts: attempt,
-        reconciledAfterError: Boolean(craftError),
-        evidence: {
-          outputBefore: beforeOutput,
-          outputAfter: afterOutput,
-          expectedIncrease,
-          ingredientChanges
-        }
-      }
-      if (craftError) {
-        console.log(
-          `[craft] ${itemName} appeared despite error: ${craftError.message}`
-        )
-      }
-      if (announce) {
-        console.log(`Crafted ${itemName} (requested ${amount}).`)
-        bot.chat(`Crafted ${itemName}.`)
-      }
-      return result
-    }
-
-    if (inventoryChanged) {
-      const error = new Error(
-        `inventory changed but the server did not confirm ${itemName} output`
-      )
-      error.code = 'CRAFT_DESYNC'
-      error.evidence = {
-        outputBefore: beforeOutput,
-        outputAfter: afterOutput,
-        expectedIncrease,
+      throwIfCancelled(signal)
+      const confirmed = await waitForCondition(bot, () => {
+        const outputAfter = inventoryCount(bot, outputId)
+        return outputAfter - outputBefore >= outputPerCraft
+          ? outputAfter
+          : null
+      }, { signal, ticks: 40 })
+      const outputAfter = inventoryCount(bot, outputId)
+      const ingredientChanges = ingredientIds.map((id) => ({
+        id,
+        before: ingredientBefore.get(id) || 0,
+        after: inventoryCount(bot, id)
+      }))
+      const inventoryChanged = outputAfter !== outputBefore ||
+        ingredientChanges.some((entry) => entry.after !== entry.before)
+      const evidence = {
+        craft: craftIndex + 1,
+        attempt,
+        outputBefore,
+        outputAfter,
+        expectedIncrease: outputPerCraft,
         ingredientChanges
       }
-      throw error
-    }
 
-    if (attempt < maxAttempts) {
-      console.log(
-        `[craft] retrying ${itemName}; attempt ${attempt} changed no inventory.`
+      if (confirmed !== null) {
+        transactionEvidence.push(evidence)
+        reconciledAfterError ||= Boolean(craftError)
+        if (craftError) {
+          console.log(
+            `[craft] ${itemName} transaction ${craftIndex + 1} ` +
+            `appeared despite error: ${craftError.message}`
+          )
+        }
+        completed = true
+        break
+      }
+
+      if (inventoryChanged) {
+        const error = new Error(
+          `craft transaction ${craftIndex + 1}/${requestedCrafts} changed ` +
+          `inventory but did not produce ${itemName}; stopped without retrying`
+        )
+        error.code = 'CRAFT_DESYNC'
+        error.evidence = evidence
+        throw error
+      }
+
+      if (attempt < maxAttempts) {
+        console.log(
+          `[craft] retrying ${itemName} transaction ${craftIndex + 1}; ` +
+          `attempt ${attempt} changed no inventory.`
+        )
+        await waitTicks(bot, 2)
+        continue
+      }
+
+      throw craftError || new Error(
+        `the server did not confirm ${itemName} in inventory`
       )
-      await waitTicks(bot, 2)
-      continue
     }
 
-    throw craftError || new Error(
-      `the server did not confirm ${itemName} in inventory`
-    )
+    if (!completed) throw new Error(`could not craft ${itemName}`)
   }
 
-  throw lastError || new Error(`could not craft ${itemName}`)
+  const totalOutputAfter = inventoryCount(bot, outputId)
+  const crafted = totalOutputAfter - totalOutputBefore
+  const expectedIncrease = outputPerCraft * requestedCrafts
+  if (crafted < expectedIncrease) {
+    const error = new Error(
+      `verified only ${crafted}/${expectedIncrease} ${itemName}; stopped`
+    )
+    error.code = 'CRAFT_PARTIAL'
+    error.evidence = transactionEvidence
+    throw error
+  }
+
+  const result = {
+    status: 'completed',
+    item: itemName,
+    requested: amount,
+    crafted,
+    attempts: transactionEvidence.reduce(
+      (total, entry) => total + entry.attempt,
+      0
+    ),
+    transactions: requestedCrafts,
+    reconciledAfterError,
+    evidence: {
+      outputBefore: totalOutputBefore,
+      outputAfter: totalOutputAfter,
+      expectedIncrease,
+      transactions: transactionEvidence
+    }
+  }
+  if (announce) {
+    console.log(`Crafted ${crafted} ${itemName} in ${requestedCrafts} verified transaction(s).`)
+    bot.chat(`Crafted ${crafted} ${itemName}.`)
+  }
+  return result
 }
 
 async function moveToCraftingTable(bot, signal) {

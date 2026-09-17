@@ -151,6 +151,46 @@ test('body API starts and reports background tasks', async () => {
   }
 })
 
+test('health does not claim a stale entity is still connected', async () => {
+  const bot = {
+    entity: {},
+    username: 'earl',
+    _client: { socket: { destroyed: true } },
+    chat: () => {}
+  }
+  const runtime = createRuntime()
+  runtime.connectionState = {
+    connected: false,
+    spawned: false,
+    lastEvent: 'end',
+    lastDisconnect: { reason: 'Timed out' }
+  }
+  const chatBridge = new ChatBridge()
+  const taskManager = new TaskManager({
+    skillRegistry: runtime.skillRegistry,
+    cancelActiveWork: runtime.cancelActiveWork
+  })
+  const server = new EarlApiServer({
+    bot,
+    runtime,
+    chatBridge,
+    taskManager,
+    port: 0
+  })
+
+  try {
+    const address = await server.start()
+    const health = await (await fetch(
+      `http://127.0.0.1:${address.port}/health`
+    )).json()
+    assert.equal(health.data.connected, false)
+    assert.equal(health.data.spawned, false)
+    assert.equal(health.data.socketConnected, false)
+  } finally {
+    await server.stop()
+  }
+})
+
 
 test('body API long-polls until a Minecraft command arrives', async () => {
   const bot = { entity: {}, username: 'earl', chat: () => {} }

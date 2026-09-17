@@ -237,8 +237,10 @@ earl ask harvest four wheat
 earl ask collect all wheat
 ```
 
-This batch operates existing farmland. Creating, tilling, irrigating, and
-expanding a new field remain separate future skills.
+Earl can also create a verified field with `create_farm`. The skill requires a
+level dirt/grass footprint, existing water within four blocks of every crop
+cell, a hoe, and enough seeds; it tills and plants each valid cell and confirms
+the resulting farmland/crop state.
 
 To try a different installed model for one PowerShell session:
 

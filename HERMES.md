@@ -54,6 +54,12 @@ one-step orders. Claim one only when no player request is waiting. For each:
 4. Re-observe after meaningful actions and change the plan if the world changed.
 5. Complete or fail the queued command with a compact factual outcome.
 
+Do not wait, sleep, or poll inside one claimed intention for more than 60
+seconds. Record the verified progress and complete or fail the intention so
+the listener can accept player requests. Never hold the command queue open
+while waiting for crops to grow, daylight, resources to appear, or a player to
+return.
+
 Before every major physical step, run `node bin/mc.js autonomy` and
 `node bin/mc.js commands`. Stop autonomous work when its status is paused or a
 player request is pending. Combat and other urgent reflexes may cancel the
@@ -105,6 +111,11 @@ node bin/mc.js deathpoint
 
 Use `node bin/mc.js skills` for the complete JSON schemas.
 
+`create_farm` is Earl's complete till-and-plant operation. It surveys a level
+dirt/grass footprint, preserves irrigation, equips a hoe, tills valid cells,
+plants the requested crop, and verifies results. Never tell the player Earl
+lacks tilling or planting capabilities before checking this skill.
+
 When building a new wheat farm and wheat seeds are missing, use `node bin/mc.js seeds COUNT`. Do not call generic block collection on short grass: seed drops are random, and the dedicated skill keeps clearing vegetation until Earl actually owns the requested number or exhausts nearby candidates.
 
 ## Building Contract V1
@@ -120,7 +131,8 @@ this sequence:
 3. Call `create_build_plan` before changing the world. Keep its returned id and
    use the stored definition for every phase. Never invent a second origin or
    elevation after construction starts.
-4. Call `prepare_build_plan_site` with that id and a two-block margin.
+4. Inspect first with `inspect_build_site`, then call
+   `prepare_build_plan_site` with that id and a two-block margin.
    It removes grass, ferns, flowers, and other small plants directly. Do not
    build around vegetation. If `ready` is false, choose a flatter site or
    explicitly repair the reported raised/unsupported cells before building.
@@ -139,10 +151,20 @@ this sequence:
     until both validation calls succeed and Earl has crossed its door.
 
 Use `node bin/mc.js plan_create JSON`, `node bin/mc.js plan_site ID 2`,
+`node bin/mc.js plan_place ID PHASE BLOCK X Y Z`,
 `node bin/mc.js plan_inspect ID`, and `node bin/mc.js door test` for these
-contract operations. Advance the stored plan only after a phase is visibly
-verified. If a restart pauses a plan, inspect the stored plan and current world
-before resuming; never replay completed placement steps blindly.
+contract operations. Every block inside the locked plan envelope must use
+`plan_place`; generic `place_block`, `build_line`, `build_wall`, and
+`build_floor` are rejected there because they do not create ledger entries.
+Advance the stored plan only after a phase is visibly verified. If a restart
+pauses a plan, inspect the stored plan and current world, then explicitly use
+`plan_resume ID REASON` or `plan_abort ID REASON`; never replay completed
+placement steps blindly.
+
+`inspect_site` is read-only. `clear_site` is destructive and must never be used
+as a survey command. Generic `collect` refuses placed building materials and
+protected home, farm, and plan areas. For one deliberate repair, inspect the
+exact coordinate and then use `break_block X Y Z EXPECTED_BLOCK`.
 
 ## Verified physical actions
 
@@ -160,6 +182,11 @@ checking the current world, using `node bin/mc.js recover ID`.
 Use `create_farm` for a new field. It requires a level dirt/grass footprint,
 water within four blocks of every cell, a hoe, and enough seeds. It preserves
 water and refuses solid obstructions rather than silently changing terrain.
+
+If `recovery` reports active repeated-death protection, do not attempt
+building, gathering, crafting, farming, or combat. Escape, eat, return home,
+sleep, or inspect state. Only the player should run `recovery_clear` after the
+area is safe.
 
 ## Memory and learning
 

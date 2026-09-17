@@ -7,6 +7,27 @@ const {
 } = require('../actions/verifiedState')
 
 const COLLECT_TIMEOUT_MS = 30000
+const PLACED_RESOURCE_PATTERNS = [
+  /_planks$/,
+  /_door$/,
+  /_bed$/,
+  /_fence$/,
+  /_fence_gate$/,
+  /_wall$/,
+  /_stairs$/,
+  /_slab$/,
+  /_glass$/,
+  /glass_pane$/
+]
+const PLACED_RESOURCE_NAMES = new Set([
+  'chest', 'barrel', 'crafting_table', 'furnace', 'blast_furnace',
+  'smoker', 'torch', 'wall_torch', 'lantern', 'soul_lantern', 'iron_bars'
+])
+
+function requiresExactPosition(blockName) {
+  return PLACED_RESOURCE_NAMES.has(blockName) ||
+    PLACED_RESOURCE_PATTERNS.some((pattern) => pattern.test(blockName))
+}
 
 function cancellationError(signal) {
   const error = signal && signal.reason instanceof Error
@@ -122,13 +143,30 @@ async function ensureToolEquipped(bot, blockType, blockName) {
 }
 
 async function gatherBlock(bot, blockName, amount = 1, options = {}) {
-  const { signal } = options
+  const { signal, isProtectedPosition = () => false } = options
   const blockType = bot.registry.blocksByName[blockName]
 
   if (!blockType) {
     console.log(`Unknown block: ${blockName}`)
     bot.chat(`I do not recognize the block ${blockName}.`)
     return false
+  }
+
+  if (requiresExactPosition(blockName)) {
+    const message =
+      `${blockName} is normally player-placed; use break_block_at with exact ` +
+      'coordinates and the expected block name.'
+    console.log(`[gather] ${message}`)
+    bot.chat(`I will not gather ${blockName} by type. Give me its exact coordinates.`)
+    return {
+      status: 'failed',
+      requested: amount,
+      collected: 0,
+      brokenNotRecovered: 0,
+      protectedSkipped: 0,
+      evidence: [],
+      message
+    }
   }
 
   throwIfCancelled(signal)
@@ -175,6 +213,7 @@ async function gatherBlock(bot, blockName, amount = 1, options = {}) {
 
   let collected = 0
   let brokenNotRecovered = 0
+  let protectedSkipped = 0
   let inventoryBlocked = false
   const expectedIds = expectedDropIds(bot, blockType, blockName)
   const evidence = []
@@ -185,6 +224,18 @@ async function gatherBlock(bot, blockName, amount = 1, options = {}) {
 
     const block = bot.blockAt(position)
     if (!block || block.type !== blockType.id) continue
+    const protection = isProtectedPosition(position, block)
+    if (protection) {
+      protectedSkipped += 1
+      evidence.push({
+        position: { x: position.x, y: position.y, z: position.z },
+        protected: true,
+        reason: typeof protection === 'string'
+          ? protection
+          : 'protected build or saved location'
+      })
+      continue
+    }
     const beforeInventory = snapshotInventory(bot, expectedIds)
     const beforeContainer = inventoryIsFull
       ? await readContainerCounts(bot, container, expectedIds)
@@ -273,6 +324,7 @@ async function gatherBlock(bot, blockName, amount = 1, options = {}) {
       requested: amount,
       collected,
       brokenNotRecovered,
+      protectedSkipped,
       evidence,
       message: `Inventory became full after collecting ${collected} of ${amount} ${blockName}.`
     }
@@ -286,10 +338,13 @@ async function gatherBlock(bot, blockName, amount = 1, options = {}) {
       requested: amount,
       collected,
       brokenNotRecovered,
+      protectedSkipped,
       evidence,
       message: brokenNotRecovered > 0
         ? `Broke ${brokenNotRecovered} ${blockName}, but recovered none of the drops.`
-        : `Could not collect any ${blockName}.`
+        : protectedSkipped > 0
+          ? `Refused to break ${protectedSkipped} protected ${blockName} block(s).`
+          : `Could not collect any ${blockName}.`
     }
   }
 
@@ -300,6 +355,7 @@ async function gatherBlock(bot, blockName, amount = 1, options = {}) {
       requested: amount,
       collected,
       brokenNotRecovered,
+      protectedSkipped,
       evidence,
       message: `Collected ${collected} of ${amount} ${blockName}.`
     }
@@ -311,8 +367,10 @@ async function gatherBlock(bot, blockName, amount = 1, options = {}) {
     requested: amount,
     collected,
     brokenNotRecovered,
+    protectedSkipped,
     evidence
   }
 }
 
 module.exports = gatherBlock
+module.exports.requiresExactPosition = requiresExactPosition

@@ -101,13 +101,18 @@ Linux, macOS, or WSL:
 bash scripts/start-hermes.sh
 ```
 
-The launcher:
+The Windows launcher:
 
-1. starts Earl if its API is not already running;
-2. temporarily installs Earl's personality as the Hermes SOUL;
-3. loads this repository's `HERMES.md` control contract;
-4. starts an interactive Hermes session;
-5. restores the previous Hermes SOUL on exit.
+1. starts Earl under a bounded restart supervisor if its API is not already
+   running;
+2. waits for a real Minecraft spawn, not merely an open API port;
+3. writes combined body output and crash details to a timestamped file under
+   `data/logs/`;
+4. temporarily installs Earl's personality as the Hermes SOUL;
+5. loads this repository's `HERMES.md` control contract;
+6. starts an interactive Hermes session;
+7. restores the previous Hermes SOUL and stops the complete Earl process tree
+   on exit.
 
 It also enables the
 [Autonomous Life & Decision System](AUTONOMY_V1.md) unless

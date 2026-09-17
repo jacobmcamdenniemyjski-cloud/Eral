@@ -11,6 +11,10 @@ SOUL_ACTIVE=false
 EARL_PID=""
 STARTED_EARL=false
 
+health_connected() {
+  curl -fsS "$API_URL/health" 2>/dev/null | grep -q '"connected":true'
+}
+
 cleanup() {
   if [ "$STARTED_EARL" = true ] && [ -n "$EARL_PID" ]; then
     kill "$EARL_PID" 2>/dev/null || true
@@ -53,7 +57,7 @@ if ! curl -fsS "$API_URL/health" >/dev/null 2>&1; then
   STARTED_EARL=true
 
   for _ in $(seq 1 30); do
-    curl -fsS "$API_URL/health" >/dev/null 2>&1 && break
+    health_connected && break
     kill -0 "$EARL_PID" 2>/dev/null || {
       echo "Earl exited before the API became ready."
       exit 1
@@ -62,8 +66,8 @@ if ! curl -fsS "$API_URL/health" >/dev/null 2>&1; then
   done
 fi
 
-curl -fsS "$API_URL/health" >/dev/null || {
-  echo "Earl API did not become ready at $API_URL."
+health_connected || {
+  echo "Earl API is not connected to Minecraft at $API_URL."
   exit 1
 }
 

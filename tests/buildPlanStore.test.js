@@ -47,5 +47,31 @@ test('build phases cannot skip unverified construction stages', () => {
     (error) => error.code === 'BUILD_PHASE_SKIPPED'
   )
   assert.equal(store.advance(plan.id, 'site_ready').phase, 'site_ready')
+  assert.throws(
+    () => store.advance(plan.id, 'floor'),
+    (error) => error.code === 'BUILD_PHASE_INCOMPLETE'
+  )
+  for (let x = 10; x < 17; x += 1) {
+    for (let z = 20; z < 27; z += 1) {
+      store.recordPosition(plan.id, { x, y: 64, z }, {
+        phase: 'floor',
+        block: 'oak_planks'
+      })
+    }
+  }
   assert.equal(store.advance(plan.id, 'floor').phase, 'floor')
+})
+
+test('build plans protect their envelope and require explicit resume or abort', () => {
+  const store = new BuildPlanStore()
+  const plan = store.create(definition)
+  assert.equal(store.findProtectingPlan({ x: 12, y: 65, z: 22 }).id, plan.id)
+  assert.equal(store.findProtectingPlan({ x: 100, y: 65, z: 100 }), null)
+
+  store.pause(plan.id, 'test pause')
+  assert.equal(store.resume(plan.id, 'world inspected').status, 'active')
+  const aborted = store.abort(plan.id, 'obsolete test plan')
+  assert.equal(aborted.status, 'failed')
+  assert.equal(aborted.outcome.aborted, true)
+  assert.equal(store.findProtectingPlan({ x: 12, y: 65, z: 22 }), null)
 })

@@ -28,7 +28,7 @@ class CombatReflex {
       ? 250
       : options.scanIntervalMs
     this.reengageCooldownMs = options.reengageCooldownMs === undefined
-      ? 2000
+      ? 10000
       : options.reengageCooldownMs
     this.now = options.now || Date.now
     this.cancelForThreat = options.cancelForThreat || (async () => {})

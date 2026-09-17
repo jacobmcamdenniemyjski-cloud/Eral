@@ -206,11 +206,11 @@ test('house requests expose every Building Contract V1 operation', () => {
     'get_scene',
     'get_inventory',
     'create_build_plan',
+    'get_build_plan',
+    'inspect_build_site',
     'prepare_build_plan_site',
-    'place_block',
-    'build_line',
-    'build_wall',
-    'build_floor',
+    'place_build_plan_block',
+    'advance_build_plan',
     'inspect_build_plan_shelter',
     'traverse_nearby_door'
   ]

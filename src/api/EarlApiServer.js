@@ -171,11 +171,26 @@ class EarlApiServer {
 
   async handleGet(path, url, response) {
     if (path === '/health' || path === '/') {
+      const connectionState = this.runtime.connectionState || null
+      const socket = this.bot._client && this.bot._client.socket
+      const socketConnected = socket
+        ? !socket.destroyed
+        : connectionState
+          ? Boolean(connectionState.connected)
+          : Boolean(this.bot.entity)
+      const spawned = connectionState
+        ? Boolean(connectionState.spawned)
+        : Boolean(this.bot.entity)
       return respond(response, 200, {
         ok: true,
         data: {
           apiVersion: 1,
-          connected: Boolean(this.bot.entity),
+          connected: connectionState
+            ? Boolean(connectionState.connected && spawned && socketConnected)
+            : Boolean(this.bot.entity && (!socket || socketConnected)),
+          spawned,
+          socketConnected,
+          connection: connectionState,
           username: this.bot.username,
           minecraftVersion: this.bot.version || null,
           brainMode: this.brainMode,

@@ -51,3 +51,40 @@ test('crafting never retries after ingredients changed without output', async ()
   )
   assert.equal(calls, 1)
 })
+
+test('multi-craft requests commit and verify one recipe at a time', async () => {
+  let calls = 0
+  const bot = craftingBot((inventory, recipe, count) => {
+    calls += 1
+    assert.equal(count, 1)
+    inventory[0].count -= 2
+    inventory[1].count += 4
+  })
+  const result = await performCraft(bot, {
+    ...selection,
+    craftCount: 3
+  }, null, 'stick', 12, { announce: false })
+
+  assert.equal(calls, 3)
+  assert.equal(result.crafted, 12)
+  assert.equal(result.transactions, 3)
+  assert.equal(result.evidence.transactions.length, 3)
+})
+
+test('multi-craft stops after the first ambiguous transaction', async () => {
+  let calls = 0
+  const bot = craftingBot((inventory) => {
+    calls += 1
+    inventory[0].count -= 2
+    if (calls === 1) inventory[1].count += 4
+    else throw new Error('updateSlot timed out')
+  })
+
+  await assert.rejects(
+    performCraft(bot, { ...selection, craftCount: 3 }, null, 'stick', 12, {
+      announce: false
+    }),
+    (error) => error.code === 'CRAFT_DESYNC'
+  )
+  assert.equal(calls, 2)
+})
