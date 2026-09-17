@@ -540,6 +540,49 @@ test('direct skill resolver handles coordinates and common amount wording', () =
   )
 })
 
+test('passive animal requests route to hunting instead of hostile combat', () => {
+  assert.deepEqual(
+    resolveDirectSkillCall('fight sheep', 'jacob48317'),
+    {
+      name: 'hunt_animal',
+      input: { animal: 'sheep', amount: 1, maxDistance: 16 }
+    }
+  )
+  assert.deepEqual(
+    resolveDirectSkillCall('hunt three cows', 'jacob48317'),
+    {
+      name: 'hunt_animal',
+      input: { animal: 'cow', amount: 3, maxDistance: 16 }
+    }
+  )
+  assert.deepEqual(
+    resolveDirectSkillCall('collect three sheep', 'jacob48317'),
+    {
+      name: 'hunt_animal',
+      input: { animal: 'sheep', amount: 3, maxDistance: 16 }
+    }
+  )
+  assert.deepEqual(
+    resolveDirectSkillCall('fight zombie', 'jacob48317'),
+    {
+      name: 'attack_hostile',
+      input: { mob: 'zombie', maxDistance: 16 }
+    }
+  )
+})
+
+test('selector exposes animal hunting for wool and sheep requests', () => {
+  const definitions = [
+    { name: 'attack_hostile' },
+    { name: 'hunt_animal' },
+    { name: 'get_inventory' }
+  ]
+  assert.deepEqual(
+    selectSkillTools('get wool by hunting sheep', definitions),
+    [{ name: 'hunt_animal' }]
+  )
+})
+
 test('selector exposes focused saved-location and sleep tools', () => {
   const definitions = [
     { name: 'get_status' },

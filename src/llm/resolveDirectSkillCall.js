@@ -12,6 +12,10 @@ const NUMBER_WORDS = {
 }
 
 const { resolveCropName } = require('../farming/crops')
+const {
+  isPassiveAnimal,
+  normalizeAnimalName
+} = require('../animals/huntAnimal')
 
 function cleanPrompt(prompt) {
   return String(prompt || '')
@@ -267,6 +271,23 @@ function resolveDirectSkillCall(prompt, username) {
     }
   }
 
+  const animalMatch = text.match(
+    /^(?:attack|kill|fight|hunt|slaughter|collect|get)\s+(.+)$/
+  )
+  if (animalMatch) {
+    const parsed = parseAmountAndResource(animalMatch[1])
+    if (parsed && isPassiveAnimal(parsed.resource)) {
+      return {
+        name: 'hunt_animal',
+        input: {
+          animal: normalizeAnimalName(parsed.resource),
+          amount: parsed.amount,
+          maxDistance: 16
+        }
+      }
+    }
+  }
+
   const calls = [
     resourceCall(
       text,
@@ -292,14 +313,16 @@ function resolveDirectSkillCall(prompt, username) {
       'take_item',
       'item'
     ),
-    resourceCall(
-      text,
-      /^(?:attack|kill|fight)\s+(.+)$/,
-      'attack_hostile',
-      'mob',
-      { maxDistance: 16 },
-      false
-    )
+    (() => {
+      const match = text.match(/^(?:attack|kill|fight|hunt)\s+(.+)$/)
+      if (!match) return null
+      const parsed = parseAmountAndResource(match[1])
+      if (!parsed) return null
+      return {
+        name: 'attack_hostile',
+        input: { mob: parsed.resource, maxDistance: 16 }
+      }
+    })()
   ]
 
   return calls.find(Boolean) || null

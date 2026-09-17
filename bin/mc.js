@@ -5,6 +5,10 @@ const baseUrl = (
   'http://127.0.0.1:3001'
 ).replace(/\/$/, '')
 const token = process.env.EARL_API_TOKEN || ''
+const {
+  isPassiveAnimal,
+  normalizeAnimalName
+} = require('../src/animals/huntAnimal')
 
 function usage(message) {
   if (message) console.error(message)
@@ -14,7 +18,7 @@ function usage(message) {
     'Messages: read_chat, commands [status], wait [seconds], listen, claim ID, complete ID [result]',
     '          recover ID, fail ID [reason], chat MESSAGE',
     'Actions: follow PLAYER, collect BLOCK COUNT, craft ITEM COUNT, goto X Y Z',
-    '         fight MOB, flee [distance], eat, pickup [count], sleep',
+    '         fight MOB [count], hunt ANIMAL [count], flee [distance], eat, pickup [count], sleep',
     '         recipes ITEM, use BLOCK, door [close|test], seeds [count], farm CROP COUNT',
     '         create_farm CROP X Y Z WIDTH DEPTH, inspect_block X Y Z',
     '         break_block X Y Z EXPECTED_BLOCK',
@@ -208,9 +212,25 @@ async function main() {
       }, true)
     case 'fight':
     case 'attack':
+      if (isPassiveAnimal(args[0])) {
+        return execute('hunt_animal', {
+          animal: normalizeAnimalName(args[0]),
+          amount: integer(args[1], 1),
+          maxDistance: 16
+        })
+      }
       return execute('attack_hostile', {
         mob: args[0] || 'zombie',
         maxDistance: integer(args[1], 16)
+      })
+    case 'hunt':
+      if (!isPassiveAnimal(args[0])) {
+        return usage('hunt requires sheep, cow, pig, chicken, rabbit, or mooshroom.')
+      }
+      return execute('hunt_animal', {
+        animal: normalizeAnimalName(args[0]),
+        amount: integer(args[1], 1),
+        maxDistance: integer(args[2], 16)
       })
     case 'flee':
       return execute('flee_from_hostiles', {

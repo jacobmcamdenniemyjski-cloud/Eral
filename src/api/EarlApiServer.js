@@ -1,5 +1,9 @@
 const http = require('node:http')
 const { URL } = require('node:url')
+const {
+  isPassiveAnimal,
+  normalizeAnimalName
+} = require('../animals/huntAnimal')
 
 const ACTION_ALIASES = {
   collect: {
@@ -18,9 +22,16 @@ const ACTION_ALIASES = {
   },
   eat: { skill: 'eat_now' },
   fight: {
-    skill: 'attack_hostile',
+    skill: (body) => isPassiveAnimal(body.mob || body.target)
+      ? 'hunt_animal'
+      : 'attack_hostile',
     input: (body) => ({
-      mob: body.mob || body.target || 'zombie',
+      ...(isPassiveAnimal(body.mob || body.target)
+        ? {
+            animal: normalizeAnimalName(body.mob || body.target),
+            amount: body.amount || body.count || 1
+          }
+        : { mob: body.mob || body.target || 'zombie' }),
       maxDistance: body.maxDistance || 16
     })
   },
@@ -164,7 +175,9 @@ class EarlApiServer {
     const alias = ACTION_ALIASES[action]
     if (!alias) return null
     return {
-      skill: alias.skill,
+      skill: typeof alias.skill === 'function'
+        ? alias.skill(body)
+        : alias.skill,
       input: alias.input ? alias.input(body) : {}
     }
   }

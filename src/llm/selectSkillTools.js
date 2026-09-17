@@ -171,6 +171,11 @@ const FARM_INTENTS = [
   }
 ]
 
+const ANIMAL_INTENTS = [{
+  pattern: /\b(?:hunt|kill|fight|slaughter|get|collect)\b.*\b(?:sheep|cows?|pigs?|chickens?|rabbits?|mooshrooms?|wool|mutton|meat)\b|\b(?:wool|mutton|meat)\b.*\b(?:sheep|hunt|collect|get)\b/i,
+  names: ['hunt_animal']
+}]
+
 function selectSkillTools(prompt, definitions, options = {}) {
   const maxTools = options.maxTools || 10
   const selectedNames = new Set()
@@ -196,6 +201,13 @@ function selectSkillTools(prompt, definitions, options = {}) {
       .slice(0, maxTools)
   }
 
+  for (const intent of ANIMAL_INTENTS) {
+    if (!intent.pattern.test(prompt)) continue
+    return definitions
+      .filter((definition) => intent.names.includes(definition.name))
+      .slice(0, maxTools)
+  }
+
   for (const group of TOOL_GROUPS) {
     if (!group.pattern.test(prompt)) continue
     for (const name of group.names) selectedNames.add(name)
@@ -211,3 +223,4 @@ module.exports.FARM_INTENTS = FARM_INTENTS
 module.exports.LOCATION_INTENTS = LOCATION_INTENTS
 module.exports.TOOL_GROUPS = TOOL_GROUPS
 module.exports.FURNACE_INTENTS = FURNACE_INTENTS
+module.exports.ANIMAL_INTENTS = ANIMAL_INTENTS

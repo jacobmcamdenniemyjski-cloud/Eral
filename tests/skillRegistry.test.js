@@ -170,7 +170,7 @@ test('Earl exposes every current capability through structured skills', () => {
     deathTracker
   })
 
-  assert.equal(registry.list().length, 59)
+  assert.equal(registry.list().length, 60)
   for (const name of [
     'get_status',
     'get_inventory',
@@ -209,6 +209,7 @@ test('Earl exposes every current capability through structured skills', () => {
     'get_farm_status',
     'farm_crops',
     'farm_all_available',
+    'hunt_animal',
     'smelt_item',
     'get_furnace_status',
     'collect_furnace_output',

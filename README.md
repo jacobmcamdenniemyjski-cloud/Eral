@@ -91,6 +91,7 @@ bash scripts/start-hermes.sh
 - `earl take <item> <amount>` — Withdraws items from a nearby container.
 - `earl equip <item>` — Equips or holds an item.
 - `earl attack <hostile>` — Attacks the nearest specified hostile mob.
+- `earl attack <animal> [amount]` — Hunts approved passive animals and collects their drops.
 - `earl combat <mode>` — Sets automatic combat to `passive`, `defensive`, `guard`, or `aggressive`.
 - `earl combat status` — Shows the automatic combat mode and protected player.
 - `earl task` — Shows Earl's current task in the console.
@@ -104,7 +105,7 @@ bash scripts/start-hermes.sh
 
 ## Structured skill registry
 
-Earl's chat commands and AI planners share the same 55 deterministic
+Earl's chat commands and AI planners share more than 60 deterministic
 skills. Each skill has a stable name, description, JSON input schema, timeout,
 and safety category. Inputs are validated with Ajv before Minecraft code runs,
 and every execution returns a structured success or error result.

@@ -13,6 +13,7 @@ const makeItem = require('../crafting/makeItem')
 const getRecipes = require('../crafting/getRecipes')
 const smeltItem = require('../smelting/smeltItem')
 const attackNearestHostile = require('../combat/attackNearestHostile')
+const huntAnimals = require('../animals/huntAnimal')
 const storeItem = require('../inventory/storeItem')
 const takeItem = require('../inventory/takeItem')
 const equipItem = require('../inventory/equipItem')
@@ -1248,6 +1249,50 @@ function createSkillRegistry(options) {
         )
       } finally {
         clearTaskIf('attack', (task) => task.target === target)
+      }
+    }
+  })
+
+  registry.register({
+    name: 'hunt_animal',
+    description: 'Hunt approved passive animals for food or materials, confirm each kill, and collect the resulting drops. Supports sheep, cows, pigs, chickens, rabbits, and mooshrooms.',
+    inputSchema: objectSchema({
+      animal: {
+        type: 'string',
+        enum: Array.from(huntAnimals.PASSIVE_ANIMALS).sort(),
+        description: 'Approved passive animal to hunt.'
+      },
+      amount: {
+        type: 'integer',
+        minimum: 1,
+        maximum: 16,
+        default: 1
+      },
+      maxDistance: {
+        type: 'integer',
+        minimum: 1,
+        maximum: 32,
+        default: 16
+      }
+    }, ['animal', 'amount', 'maxDistance']),
+    timeoutMs: 300000,
+    safety: 'combat',
+    execute: async ({ animal, amount, maxDistance }, context) => {
+      const accepted = scheduler.setTask({
+        type: 'hunt',
+        target: animal,
+        amount,
+        priority: 250
+      })
+      if (!accepted) return false
+
+      try {
+        return await huntAnimals(bot, animal, amount, {
+          maxDistance,
+          signal: context.signal
+        })
+      } finally {
+        clearTaskIf('hunt', (task) => task.target === animal)
       }
     }
   })

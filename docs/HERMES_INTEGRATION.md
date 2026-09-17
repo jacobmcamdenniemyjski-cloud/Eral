@@ -221,6 +221,11 @@ A non-loopback API bind is rejected unless `EARL_API_TOKEN` is set. The CLI
 sends that token automatically. Keep the endpoint private; it can move, build,
 fight, and use Earl's inventory.
 
+Passive resources use the separate `hunt_animal` skill. Hermes can run
+`node bin/mc.js hunt sheep 3`; the compatibility command `fight sheep` routes
+to the same allowlisted action rather than `attack_hostile`. The body confirms
+each kill, collects nearby drops, and returns the inventory gains.
+
 The launchers use Hermes YOLO mode for unattended Minecraft tool calls. Set
 `EARL_HERMES_YOLO=false` to retain terminal approval prompts.
 

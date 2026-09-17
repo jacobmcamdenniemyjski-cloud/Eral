@@ -25,7 +25,7 @@ async function attackNearestHostile(
 
   if (!HOSTILE_MOBS.has(normalizedName)) {
     bot.chat(`I will not attack ${mobName}. Choose a hostile mob.`)
-    return null
+    return false
   }
 
   const isValidTarget = (entity) => {
@@ -54,7 +54,7 @@ async function attackNearestHostile(
 
   if (!target) {
     bot.chat(`I cannot find a ${normalizedName} within ${maxDistance} blocks.`)
-    return null
+    return false
   }
 
   if (signal && signal.aborted) {

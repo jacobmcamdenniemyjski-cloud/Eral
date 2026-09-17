@@ -110,6 +110,25 @@ test('body API authenticates tool access and executes skills', async () => {
   }
 })
 
+test('fight action routes approved passive animals to the hunting skill', () => {
+  const server = new EarlApiServer({
+    bot: {},
+    runtime: createRuntime()
+  })
+
+  assert.deepEqual(server.aliasAction('fight', {
+    mob: 'sheep',
+    amount: 3
+  }), {
+    skill: 'hunt_animal',
+    input: { animal: 'sheep', amount: 3, maxDistance: 16 }
+  })
+  assert.deepEqual(server.aliasAction('fight', { mob: 'zombie' }), {
+    skill: 'attack_hostile',
+    input: { mob: 'zombie', maxDistance: 16 }
+  })
+})
+
 test('body API starts and reports background tasks', async () => {
   const bot = { entity: {}, username: 'earl', chat: () => {} }
   const runtime = createRuntime()

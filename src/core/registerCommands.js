@@ -5,6 +5,11 @@ const createSkillRegistry = require('../skills/createSkillRegistry')
 const { parseItemRequest } = require('./parseItemRequest')
 const { resolveCropName } = require('../farming/crops')
 const PhysicalActionCoordinator = require('../actions/PhysicalActionCoordinator')
+const {
+  isPassiveAnimal,
+  normalizeAnimalName
+} = require('../animals/huntAnimal')
+const { parseAmountAndResource } = require('../llm/resolveDirectSkillCall')
 
 function getBuildOrigin(parts, startIndex = 1) {
   const coordinates = parts.slice(startIndex, startIndex + 3).map(Number)
@@ -650,11 +655,19 @@ function registerCommands(bot, scheduler, router, options = {}) {
   }
 
   async function handleAttack(args, context) {
-    const mobName = args.trim().toLowerCase()
-    if (!mobName) return bot.chat('Usage: attack <hostile_mob>')
+    const request = parseAmountAndResource(args)
+    if (!request) return bot.chat('Usage: attack <mob> [amount]')
+
+    if (isPassiveAnimal(request.resource)) {
+      return runSkill('hunt_animal', {
+        animal: normalizeAnimalName(request.resource),
+        amount: request.amount,
+        maxDistance: 16
+      }, context)
+    }
 
     return runSkill('attack_hostile', {
-      mob: mobName,
+      mob: request.resource,
       maxDistance: 16
     }, context)
   }
@@ -875,6 +888,7 @@ function registerCommands(bot, scheduler, router, options = {}) {
     { verb: 'deaths', skill: 'get_deaths', handler: handleDeaths, passive: true },
     { verb: 'deathpoint', skill: 'return_to_death', handler: handleDeathpoint },
     { verb: 'attack', skill: 'attack_hostile', handler: handleAttack },
+    { verb: 'hunt', skill: 'hunt_animal', handler: handleAttack },
     { verb: 'combat', skill: 'get_combat_status', handler: handleCombat, passive: true },
     { verb: 'stop', skill: 'stop_all', handler: handleStop },
     { verb: 'find', skill: 'find_block', handler: handleFind, passive: true },

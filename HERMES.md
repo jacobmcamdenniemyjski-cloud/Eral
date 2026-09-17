@@ -100,6 +100,7 @@ node bin/mc.js farm_all wheat
 node bin/mc.js create_farm wheat 100 64 200 5 5
 node bin/mc.js smelt raw_iron 4 coal
 node bin/mc.js fight zombie
+node bin/mc.js hunt sheep 3
 node bin/mc.js flee 16
 node bin/mc.js pickup
 node bin/mc.js door test
@@ -110,6 +111,12 @@ node bin/mc.js deathpoint
 ```
 
 Use `node bin/mc.js skills` for the complete JSON schemas.
+
+For wool or meat, use the body-owned `hunt_animal` skill (or
+`node bin/mc.js hunt sheep COUNT`). `fight sheep` is also routed to this skill.
+Do not call `attack_hostile` for passive animals. Hunting is restricted to an
+explicit allowlist, avoids custom-named animals, confirms each server-side kill,
+and collects nearby drops before reporting inventory evidence.
 
 `create_farm` is Earl's complete till-and-plant operation. It surveys a level
 dirt/grass footprint, preserves irrigation, equips a hoe, tills valid cells,
