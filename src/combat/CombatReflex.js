@@ -28,10 +28,11 @@ class CombatReflex {
       ? 250
       : options.scanIntervalMs
     this.reengageCooldownMs = options.reengageCooldownMs === undefined
-      ? 2000
+      ? 10000
       : options.reengageCooldownMs
     this.now = options.now || Date.now
     this.cancelForThreat = options.cancelForThreat || (async () => {})
+    this.actionCoordinator = options.actionCoordinator || null
     this.urgencyHandler = options.urgencyHandler || (async () => {})
     this.notify = options.notify || (() => {})
     this.ownerUsername = null
@@ -301,29 +302,58 @@ class CombatReflex {
         return null
       }
 
-      await this.equipBestWeapon()
-
-      const controller = new AbortController()
-      this.activeController = controller
-      this.scheduler.setTask({
-        type: 'reflex-attack',
-        target: threat.name,
-        priority: 1000
-      })
-
-      console.log(`Earl's ${this.mode} reflex engaged ${threat.name}.`)
-      this.notify(`Defending against ${threat.name}.`)
-
-      return await attackNearestHostile(
-        this.bot,
-        threat.name,
-        20,
-        {
-          signal: controller.signal,
-          target: threat,
-          announce: false
+      const attack = async (coordinatedSignal = null) => {
+        const controller = new AbortController()
+        this.activeController = controller
+        const onCoordinatedAbort = () => {
+          if (!controller.signal.aborted) {
+            controller.abort(
+              coordinatedSignal.reason || new Error('reflex combat interrupted')
+            )
+          }
         }
-      )
+        if (coordinatedSignal) {
+          if (coordinatedSignal.aborted) onCoordinatedAbort()
+          else coordinatedSignal.addEventListener('abort', onCoordinatedAbort, {
+            once: true
+          })
+        }
+
+        try {
+          await this.equipBestWeapon()
+          this.scheduler.setTask({
+            type: 'reflex-attack',
+            target: threat.name,
+            priority: 1000
+          })
+
+          console.log(`Earl's ${this.mode} reflex engaged ${threat.name}.`)
+          this.notify(`Defending against ${threat.name}.`)
+
+          return await attackNearestHostile(
+            this.bot,
+            threat.name,
+            20,
+            {
+              signal: controller.signal,
+              target: threat,
+              announce: false
+            }
+          )
+        } finally {
+          if (coordinatedSignal) {
+            coordinatedSignal.removeEventListener('abort', onCoordinatedAbort)
+          }
+        }
+      }
+
+      return this.actionCoordinator
+        ? await this.actionCoordinator.run('reflex_attack', attack, {
+            priority: 1000,
+            preempt: true,
+            requestedBy: 'combat_reflex'
+          })
+        : await attack()
     } catch (error) {
       if (!this.activeController || !this.activeController.signal.aborted) {
         console.error(`Combat reflex failed: ${error.message}`)

@@ -185,7 +185,7 @@ test('block placement removes and confirms a plant occupying its target', async 
       digs += 1
       world.delete(key(plant.position))
     },
-    async equip() {},
+    async equip(item) { bot.heldItem = item },
     async placeBlock(reference, face) {
       placements += 1
       const position = reference.position.plus(face)
@@ -194,7 +194,9 @@ test('block placement removes and confirms a plant occupying its target', async 
   }
 
   const result = await placeBlockAt(bot, 'oak_planks', target)
-  assert.deepEqual(result, { placed: true, skipped: false })
+  assert.equal(result.status, 'completed')
+  assert.equal(result.placed, true)
+  assert.equal(result.evidence.confirmedBlock, 'oak_planks')
   assert.equal(digs, 1)
   assert.equal(placements, 1)
 })
@@ -203,13 +205,13 @@ test('house requests expose every Building Contract V1 operation', () => {
   const names = [
     'get_scene',
     'get_inventory',
-    'validate_build_plan',
-    'clear_build_site',
-    'place_block',
-    'build_line',
-    'build_wall',
-    'build_floor',
-    'inspect_shelter',
+    'create_build_plan',
+    'get_build_plan',
+    'inspect_build_site',
+    'prepare_build_plan_site',
+    'place_build_plan_block',
+    'advance_build_plan',
+    'inspect_build_plan_shelter',
     'traverse_nearby_door'
   ]
   const selected = selectSkillTools(

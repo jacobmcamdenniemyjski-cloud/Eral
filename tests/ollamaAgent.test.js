@@ -454,6 +454,24 @@ test('collect all wheat selects the dedicated inspect-and-farm skill', () => {
   )
 })
 
+test('creating a farm selects the verified farm-construction skill', () => {
+  const definitions = [
+    { name: 'get_scene' },
+    { name: 'get_inventory' },
+    { name: 'get_farm_status' },
+    { name: 'farm_crops' },
+    { name: 'create_farm' }
+  ]
+  assert.deepEqual(
+    selectSkillTools('create a small wheat farm', definitions),
+    [
+      { name: 'get_scene' },
+      { name: 'get_inventory' },
+      { name: 'create_farm' }
+    ]
+  )
+})
+
 test('simple action prompts resolve directly without waiting for Ollama', async () => {
   const provider = createProvider([])
   const calls = []
@@ -522,21 +540,47 @@ test('direct skill resolver handles coordinates and common amount wording', () =
   )
 })
 
-test('block removal exposes and directly resolves the validated coordinate skill', () => {
-  const definitions = [
-    { name: 'break_block_at' },
-    { name: 'get_scene' },
-    { name: 'gather_block' }
-  ]
-
+test('passive animal requests route to hunting instead of hostile combat', () => {
   assert.deepEqual(
-    selectSkillTools('remove the block at 343 64 442', definitions),
-    [{ name: 'break_block_at' }, { name: 'get_scene' }]
+    resolveDirectSkillCall('fight sheep', 'jacob48317'),
+    {
+      name: 'hunt_animal',
+      input: { animal: 'sheep', amount: 1, maxDistance: 16 }
+    }
   )
-  assert.deepEqual(resolveDirectSkillCall('break block at 343 64 442'), {
-    name: 'break_block_at',
-    input: { position: { x: 343, y: 64, z: 442 } }
-  })
+  assert.deepEqual(
+    resolveDirectSkillCall('hunt three cows', 'jacob48317'),
+    {
+      name: 'hunt_animal',
+      input: { animal: 'cow', amount: 3, maxDistance: 16 }
+    }
+  )
+  assert.deepEqual(
+    resolveDirectSkillCall('collect three sheep', 'jacob48317'),
+    {
+      name: 'hunt_animal',
+      input: { animal: 'sheep', amount: 3, maxDistance: 16 }
+    }
+  )
+  assert.deepEqual(
+    resolveDirectSkillCall('fight zombie', 'jacob48317'),
+    {
+      name: 'attack_hostile',
+      input: { mob: 'zombie', maxDistance: 16 }
+    }
+  )
+})
+
+test('selector exposes animal hunting for wool and sheep requests', () => {
+  const definitions = [
+    { name: 'attack_hostile' },
+    { name: 'hunt_animal' },
+    { name: 'get_inventory' }
+  ]
+  assert.deepEqual(
+    selectSkillTools('get wool by hunting sheep', definitions),
+    [{ name: 'hunt_animal' }]
+  )
 })
 
 test('selector exposes focused saved-location and sleep tools', () => {

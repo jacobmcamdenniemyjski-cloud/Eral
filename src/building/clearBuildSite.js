@@ -145,6 +145,38 @@ function inspectFloorPlane(bot, origin, width, depth) {
   return { unsupportedFloorCells, solidObstructions }
 }
 
+function inspectBuildSite(bot, plan) {
+  const margin = plan.margin ?? 2
+  const clearanceHeight = plan.clearanceHeight ?? 3
+  const plants = scanPlants(
+    bot,
+    plan.origin,
+    plan.width,
+    plan.depth,
+    margin,
+    clearanceHeight
+  )
+  const plane = inspectFloorPlane(bot, plan.origin, plan.width, plan.depth)
+  return {
+    origin: plan.origin,
+    width: plan.width,
+    depth: plan.depth,
+    margin,
+    clearanceHeight,
+    plants: plants.map((block) => ({
+      name: block.name,
+      position: block.position
+    })),
+    plantsRemaining: plants.length,
+    ...plane,
+    ready: (
+      plants.length === 0 &&
+      plane.unsupportedFloorCells === 0 &&
+      plane.solidObstructions === 0
+    )
+  }
+}
+
 async function clearBuildSite(bot, plan, options = {}) {
   const { signal } = options
   const margin = plan.margin ?? 2
@@ -177,30 +209,13 @@ async function clearBuildSite(bot, plan, options = {}) {
     }
   }
 
-  const remaining = scanPlants(
-    bot,
-    plan.origin,
-    plan.width,
-    plan.depth,
-    margin,
-    clearanceHeight
-  )
-  const plane = inspectFloorPlane(bot, plan.origin, plan.width, plan.depth)
+  const inspection = inspectBuildSite(bot, plan)
+  const summary = { ...inspection }
+  delete summary.plants
   const result = {
-    origin: plan.origin,
-    width: plan.width,
-    depth: plan.depth,
-    margin,
-    clearanceHeight,
+    ...summary,
     plantsBroken,
-    plantsRemaining: remaining.length,
-    failedPlants: failed.size,
-    ...plane,
-    ready: (
-      remaining.length === 0 &&
-      plane.unsupportedFloorCells === 0 &&
-      plane.solidObstructions === 0
-    )
+    failedPlants: failed.size
   }
 
   if (result.ready) {
@@ -208,8 +223,8 @@ async function clearBuildSite(bot, plan, options = {}) {
   } else {
     bot.chat(
       `Cleared ${plantsBroken} plants, but the site needs leveling: ` +
-      `${plane.solidObstructions} raised blocks and ` +
-      `${plane.unsupportedFloorCells} unsupported floor cells.`
+      `${inspection.solidObstructions} raised blocks and ` +
+      `${inspection.unsupportedFloorCells} unsupported floor cells.`
     )
   }
 
@@ -219,5 +234,6 @@ async function clearBuildSite(bot, plan, options = {}) {
 module.exports = clearBuildSite
 module.exports.CLEARABLE_PLANTS = CLEARABLE_PLANTS
 module.exports.inspectFloorPlane = inspectFloorPlane
+module.exports.inspectBuildSite = inspectBuildSite
 module.exports.isClearablePlant = isClearablePlant
 module.exports.scanPlants = scanPlants

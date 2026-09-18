@@ -167,40 +167,47 @@ async function makeItem(bot, itemName, amount = 1, options = {}) {
   }
 
   throwIfCancelled(signal)
-  const plan = createCraftingPlan(bot, item.id, amount)
+  const startingCount = getInventoryCounts(bot).get(item.id) || 0
+  const desiredTotal = startingCount + amount
+  let completedSteps = 0
+  const evidence = []
+  let announcedPlan = false
 
-  if (plan.missing.size > 0) {
-    const missing = formatMissing(bot, plan.missing)
-    console.log(`Cannot make ${itemName}; missing ${missing}.`)
-    bot.chat(`To make ${itemName}, I still need ${missing}.`)
-    return false
-  }
-
-  if (plan.steps.length === 0) {
-    bot.chat(`I already have enough ${itemName}.`)
-    return true
-  }
-
-  if (plan.steps.length > maxSteps) {
-    bot.chat(`Making ${itemName} requires too many crafting steps.`)
-    return false
-  }
-
-  if (
-    plan.steps.some((step) => step.recipe.requiresTable) &&
-    !findCraftingTable(bot)
-  ) {
-    bot.chat('I need a crafting table within 16 blocks for that plan.')
-    return false
-  }
-
-  console.log(
-    `Making ${amount} ${itemName} in ${plan.steps.length} crafting steps.`
-  )
-
-  for (const step of plan.steps) {
+  while ((getInventoryCounts(bot).get(item.id) || 0) < desiredTotal) {
     throwIfCancelled(signal)
+    const currentCount = getInventoryCounts(bot).get(item.id) || 0
+    const plan = createCraftingPlan(bot, item.id, desiredTotal - currentCount)
 
+    if (plan.missing.size > 0) {
+      const missing = formatMissing(bot, plan.missing)
+      console.log(`Cannot make ${itemName}; missing ${missing}.`)
+      bot.chat(`To make ${itemName}, I still need ${missing}.`)
+      return false
+    }
+
+    if (plan.steps.length === 0) break
+
+    if (completedSteps + plan.steps.length > maxSteps) {
+      bot.chat(`Making ${itemName} requires too many crafting steps.`)
+      return false
+    }
+
+    if (
+      plan.steps.some((step) => step.recipe.requiresTable) &&
+      !findCraftingTable(bot)
+    ) {
+      bot.chat('I need a crafting table within 16 blocks for that plan.')
+      return false
+    }
+
+    if (!announcedPlan) {
+      console.log(
+        `Making ${amount} ${itemName} with adaptive crafting verification.`
+      )
+      announcedPlan = true
+    }
+
+    const step = plan.steps[0]
     const crafted = await craftItem(
       bot,
       step.itemName,
@@ -212,20 +219,34 @@ async function makeItem(bot, itemName, amount = 1, options = {}) {
       }
     )
 
-    if (!crafted) {
+    if (!crafted || crafted.status !== 'completed') {
       bot.chat(`The crafting plan stopped at ${step.itemName}.`)
       return false
     }
 
+    completedSteps += 1
+    evidence.push(crafted)
     console.log(
       `Crafting plan completed ${step.itemName} (${step.craftCount} crafts).`
     )
   }
 
   throwIfCancelled(signal)
+  const finalCount = getInventoryCounts(bot).get(item.id) || 0
+  if (finalCount < desiredTotal) {
+    bot.chat(`The crafting plan ended without enough ${itemName}.`)
+    return false
+  }
   bot.chat(`Made ${amount} ${itemName}.`)
   console.log(`Made ${amount} ${itemName}.`)
-  return true
+  return {
+    status: 'completed',
+    item: itemName,
+    requested: amount,
+    crafted: finalCount - startingCount,
+    steps: completedSteps,
+    evidence
+  }
 }
 
 module.exports = makeItem

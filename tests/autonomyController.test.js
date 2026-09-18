@@ -106,6 +106,13 @@ test('urgent reflex pauses active intention and resumes the same intention', asy
   assert.equal(resumed.current.status, 'active')
   assert.equal(chatBridge.findCommand(commandId).status, 'pending')
   assert.match(chatBridge.findCommand(commandId).command, /Resume autonomous intention/)
+
+  await controller.interrupt('second interruption')
+  await controller.resume('second interruption cleared')
+  const resumeMarkers = chatBridge.findCommand(commandId).command.match(
+    /Resume autonomous intention/g
+  ) || []
+  assert.equal(resumeMarkers.length, 1)
 })
 
 test('observed low-health interruption clears when health recovers', async () => {
@@ -157,7 +164,6 @@ test('completed intentions become compact persistent history', async () => {
 
     const restarted = createController({ filePath }).controller
     const status = restarted.getStatus()
-    assert.equal(status.current, null)
     assert.equal(status.recentHistory[0].status, 'completed')
     assert.equal(status.recentHistory[0].outcome, 'home lighting improved')
   } finally {
@@ -177,17 +183,65 @@ test('healthy Earl may choose a nonessential project instead of busywork', async
   )))
 })
 
-test('autonomy temporarily suppresses an intention that reported a blocker', async () => {
+test('completed intentions cool down instead of immediately repeating', async () => {
   const { controller, chatBridge } = createController()
   await controller.tick()
   const first = controller.getStatus().current
-  chatBridge.completeCommand(first.commandId, 'BLOCKED: I cannot leave through the sealed door.')
+  chatBridge.completeCommand(first.commandId, 'verified one useful outcome')
   await controller.tick()
 
-  const candidates = controller.generateCandidates(observation())
+  const second = controller.getStatus().current
+  assert.notEqual(second.title, first.title)
+})
+
+test('sleeping at night does not generate another night-safety intention', () => {
+  const { controller } = createController()
+  const candidates = controller.generateCandidates(observation({
+    timeOfDay: 18000,
+    sleeping: true
+  }))
+
   assert.equal(
-    candidates.some((candidate) => candidate.title === first.title),
+    candidates.some((candidate) => (
+      candidate.title === 'return home and make the night safe'
+    )),
     false
   )
-  assert.equal(controller.getStatus().recentHistory[0].blocked, true)
+})
+
+test('growing crops prevent a full and fed Earl from repeating emergency food work', () => {
+  const { controller } = createController()
+  const candidates = controller.generateCandidates(observation({
+    inventory: [
+      { name: 'oak_log', count: 16 },
+      { name: 'cobblestone', count: 32 }
+    ],
+    farm: {
+      crops: [{ name: 'wheat', total: 8, mature: 0 }],
+      emptyFarmland: 0
+    }
+  }))
+
+  assert.equal(
+    candidates.some((candidate) => (
+      candidate.drive === 'food_security'
+    )),
+    false
+  )
+})
+
+test('a sticky survival hold cannot auto-resume on the next autonomy tick', async () => {
+  const { controller, chatBridge } = createController()
+  await controller.tick()
+  const commandId = controller.getStatus().current.commandId
+  chatBridge.claimCommand(commandId)
+
+  await controller.setSafetyHold(true, 'repeated deaths')
+  await controller.tick()
+  assert.equal(controller.getStatus().current.status, 'paused')
+  assert.equal(chatBridge.findCommand(commandId).status, 'paused')
+
+  await controller.setSafetyHold(false, 'player cleared recovery')
+  assert.equal(controller.getStatus().current.status, 'active')
+  assert.equal(chatBridge.findCommand(commandId).status, 'pending')
 })

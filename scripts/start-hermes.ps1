@@ -17,6 +17,9 @@ $SoulBackup = "$SoulFile.earl-$PID.bak"
 $HadSoul = Test-Path $SoulFile
 $EarlProcess = $null
 $StartedEarl = $false
+$LogDirectory = Join-Path $Root "data/logs"
+$LogStamp = Get-Date -Format "yyyyMMdd-HHmmss"
+$BodyLog = Join-Path $LogDirectory "earl-body-$LogStamp.log"
 
 if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
     throw "Node.js is required."
@@ -40,29 +43,49 @@ if ($HadSoul) {
 Copy-Item "$Root/prompts/SOUL-earl.md" $SoulFile -Force
 
 try {
+    $ExistingHealth = $null
     try {
-        Invoke-RestMethod -Uri "$ApiUrl/health" -TimeoutSec 2 | Out-Null
+        $ExistingHealth = Invoke-RestMethod -Uri "$ApiUrl/health" -TimeoutSec 2
     } catch {
-        $EarlProcess = Start-Process -FilePath "npm.cmd" -ArgumentList "start" -WorkingDirectory $Root -PassThru
+        New-Item -ItemType Directory -Force -Path $LogDirectory | Out-Null
+        $Supervisor = Join-Path $Root "scripts/start-earl-supervisor.ps1"
+        $SupervisorArgs = @(
+            "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$Supervisor`"",
+            "-Root", "`"$Root`"", "-LogFile", "`"$BodyLog`""
+        )
+        $EarlProcess = Start-Process -FilePath "powershell.exe" -ArgumentList $SupervisorArgs -WorkingDirectory $Root -PassThru
         $StartedEarl = $true
+        Write-Host "Earl body log: $BodyLog"
 
         $Ready = $false
-        for ($Attempt = 0; $Attempt -lt 30; $Attempt++) {
+        for ($Attempt = 0; $Attempt -lt 45; $Attempt++) {
             Start-Sleep -Seconds 1
             if ($EarlProcess.HasExited) {
                 throw "Earl exited before the API became ready."
             }
 
             try {
-                Invoke-RestMethod -Uri "$ApiUrl/health" -TimeoutSec 2 | Out-Null
-                $Ready = $true
-                break
+                $Health = Invoke-RestMethod -Uri "$ApiUrl/health" -TimeoutSec 2
+                $HealthData = if ($Health.data) { $Health.data } else { $Health }
+                if ($HealthData.connected -eq $true) {
+                    $Ready = $true
+                    break
+                }
             } catch {}
         }
 
         if (-not $Ready) {
-            throw "Earl API did not become ready at $ApiUrl."
+            throw "Earl did not connect and spawn within 45 seconds. Check $BodyLog"
         }
+    }
+
+    $ExistingHealthData = if ($ExistingHealth -and $ExistingHealth.data) {
+        $ExistingHealth.data
+    } else {
+        $ExistingHealth
+    }
+    if ($ExistingHealthData -and $ExistingHealthData.connected -ne $true) {
+        throw "An Earl API is already running at $ApiUrl but Minecraft is disconnected. Stop the stale Earl process, then run this launcher again."
     }
 
     $Seed = "Start Earl companion mode. Check body health, autonomy status, and pending commands. Handle player requests before autonomous intentions. When idle, arm the background command listener described in HERMES.md."
@@ -81,7 +104,9 @@ try {
     & hermes @HermesArgs
 } finally {
     if ($StartedEarl -and $EarlProcess -and -not $EarlProcess.HasExited) {
-        Stop-Process -Id $EarlProcess.Id
+        try {
+            & taskkill.exe /PID $EarlProcess.Id /T /F | Out-Null
+        } catch {}
     }
     if ($HadSoul -and (Test-Path $SoulBackup)) {
         Move-Item $SoulBackup $SoulFile -Force

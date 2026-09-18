@@ -9,6 +9,11 @@ function createBot(options = {}) {
   const tool = options.tool
   const collectionOptions = []
   let collectCalls = 0
+  const remaining = new Set(positions.map((position) => (
+    `${position.x},${position.y},${position.z}`
+  )))
+  const inventory = tool ? [tool] : []
+  const stored = { count: 0 }
 
   const bot = {
     heldItem: null,
@@ -16,18 +21,24 @@ function createBot(options = {}) {
       blocksByName: {
         stone: {
           id: 1,
-          harvestTools: { 257: true }
+          harvestTools: { 257: true },
+          drops: [4]
         },
         chest: { id: 54 }
-      }
+      },
+      itemsByName: { stone: { id: 4 } }
     },
     inventory: {
-      items: () => tool ? [tool] : [],
+      items: () => inventory,
       emptySlotCount: () => options.emptySlots ?? 1
     },
     findBlock: () => options.container || null,
     findBlocks: () => positions,
-    blockAt: (position) => ({ type: 1, position }),
+    blockAt: (position) => remaining.has(
+      `${position.x},${position.y},${position.z}`
+    )
+      ? { type: 1, name: 'stone', position }
+      : { type: 0, name: 'air', position },
     collectBlock: {
       async collect(block, collectOptions) {
         collectCalls += 1
@@ -39,6 +50,16 @@ function createBot(options = {}) {
         }
         collected.push(block.position)
         collectionOptions.push(collectOptions)
+        remaining.delete(
+          `${block.position.x},${block.position.y},${block.position.z}`
+        )
+        if ((options.emptySlots ?? 1) === 0) {
+          stored.count += 1
+        } else {
+          const stack = inventory.find((item) => item.type === 4)
+          if (stack) stack.count += 1
+          else inventory.push({ type: 4, name: 'stone', count: 1 })
+        }
       },
       cancelTask() {}
     },
@@ -47,6 +68,14 @@ function createBot(options = {}) {
     },
     async equip(item) {
       bot.heldItem = item
+    },
+    async openContainer() {
+      return {
+        containerItems: () => stored.count > 0
+          ? [{ type: 4, name: 'stone', count: stored.count }]
+          : [],
+        close() {}
+      }
     },
     chat(message) {
       chats.push(message)
@@ -76,7 +105,8 @@ test('gathering equips a valid tool and reaches the requested amount', async () 
 
   const result = await gatherBlock(bot, 'stone', 2)
 
-  assert.equal(result, true)
+  assert.equal(result.status, 'completed')
+  assert.equal(result.collected, 2)
   assert.equal(bot.heldItem.name, 'iron_pickaxe')
   assert.equal(collected.length, 2)
 })
@@ -109,7 +139,7 @@ test('a full inventory uses a nearby chest instead of breaking gathering', async
 
   const result = await gatherBlock(bot, 'stone', 1)
 
-  assert.equal(result, true)
+  assert.equal(result.status, 'completed')
   assert.deepEqual(collectionOptions[0].chestLocations, [container.position])
 })
 
@@ -140,7 +170,33 @@ test('gathering stops once if inventory becomes full during collection', async (
 
   const result = await gatherBlock(bot, 'stone', 3)
 
-  assert.equal(result, false)
+  assert.equal(result.status, 'partial')
+  assert.equal(result.collected, 1)
   assert.equal(collected.length, 1)
   assert.equal(chats.filter((message) => /inventory became full/i.test(message)).length, 1)
+})
+
+test('generic gathering refuses player-placeable building blocks', async () => {
+  const { bot, collected } = createBot()
+  bot.registry.blocksByName.oak_planks = { id: 5, drops: [5] }
+  bot.registry.itemsByName.oak_planks = { id: 5 }
+
+  const result = await gatherBlock(bot, 'oak_planks', 1)
+
+  assert.equal(result.status, 'failed')
+  assert.match(result.message, /exact coordinates/i)
+  assert.equal(collected.length, 0)
+})
+
+test('generic gathering skips protected coordinates without breaking them', async () => {
+  const { bot, collected } = createBot({
+    tool: { type: 257, name: 'iron_pickaxe' }
+  })
+  const result = await gatherBlock(bot, 'stone', 1, {
+    isProtectedPosition: () => 'inside protected home area'
+  })
+
+  assert.equal(result.status, 'failed')
+  assert.equal(result.protectedSkipped, 1)
+  assert.equal(collected.length, 0)
 })

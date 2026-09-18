@@ -71,12 +71,15 @@ test('chat bridge persists messages and recovers claimed requests', () => {
     first.claimCommand(queued.id)
 
     const restarted = new ChatBridge({ filePath })
-    const recovered = restarted.getCommands({ status: 'pending' })[0]
+    const recovered = restarted.getCommands({ status: 'needs_review' })[0]
     assert.equal(recovered.id, queued.id)
     assert.equal(recovered.recoveryCount, 1)
+    assert.match(recovered.pauseReason, /review before replaying/i)
     assert.equal(restarted.getMessages()[0].message, 'remember this')
     assert.equal(restarted.summary().recoveredCommands, 1)
 
+    const resumed = restarted.resumeCommand(queued.id)
+    assert.equal(resumed.status, 'pending')
     restarted.completeCommand(queued.id, 'done')
     const loadedAgain = new ChatBridge({ filePath })
     assert.equal(

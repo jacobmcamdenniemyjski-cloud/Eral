@@ -133,6 +133,21 @@ test('tool definitions expose schemas but not executable functions', () => {
   assert.equal('execute' in definitions[0], false)
 })
 
+test('execution guards block unsafe skills before their executor runs', async () => {
+  let executions = 0
+  const registry = createEchoRegistry(async () => { executions += 1 })
+  registry.addExecutionGuard(() => ({
+    allowed: false,
+    code: 'TEST_SAFETY_GATE',
+    message: 'blocked for test'
+  }))
+
+  const result = await registry.execute('echo_message', { message: 'hello' })
+  assert.equal(result.ok, false)
+  assert.equal(result.error.code, 'TEST_SAFETY_GATE')
+  assert.equal(executions, 0)
+})
+
 test('Earl exposes every current capability through structured skills', () => {
   const scheduler = {
     getCurrentTask: () => null,
@@ -155,7 +170,7 @@ test('Earl exposes every current capability through structured skills', () => {
     deathTracker
   })
 
-  assert.equal(registry.list().length, 47)
+  assert.equal(registry.list().length, 60)
   for (const name of [
     'get_status',
     'get_inventory',
@@ -173,15 +188,28 @@ test('Earl exposes every current capability through structured skills', () => {
     'go_to_location',
     'sleep_in_bed',
     'make_item',
-    'break_block_at',
     'gather_seeds',
+    'create_farm',
     'validate_build_plan',
+    'create_build_plan',
+    'place_build_plan_block',
+    'get_build_plan',
+    'list_build_plans',
+    'resume_build_plan',
+    'abort_build_plan',
+    'advance_build_plan',
+    'prepare_build_plan_site',
+    'inspect_build_plan_shelter',
+    'inspect_build_site',
+    'inspect_block_at',
+    'break_block_at',
     'clear_build_site',
     'inspect_shelter',
     'traverse_nearby_door',
     'get_farm_status',
     'farm_crops',
     'farm_all_available',
+    'hunt_animal',
     'smelt_item',
     'get_furnace_status',
     'collect_furnace_output',
@@ -190,4 +218,59 @@ test('Earl exposes every current capability through structured skills', () => {
   ]) {
     assert.ok(registry.get(name), `missing skill: ${name}`)
   }
+})
+
+test('planned placements cannot bypass verified construction phases', async () => {
+  const scheduler = {
+    getCurrentTask: () => null,
+    setTask: () => true,
+    clearTask: () => {}
+  }
+  const registry = createSkillRegistry({
+    bot: {},
+    scheduler,
+    combatReflex: {
+      getStatus: () => ({ mode: 'defensive' }),
+      setMode: () => true,
+      suppress: () => {}
+    },
+    deathTracker: { list: async () => [], returnToLatest: async () => null }
+  })
+  const created = await registry.execute('create_build_plan', {
+    origin: { x: 0, y: 64, z: 0 },
+    width: 5,
+    depth: 5,
+    interiorHeight: 3,
+    doorPosition: { x: 2, y: 65, z: 0 }
+  })
+  const placement = await registry.execute('place_build_plan_block', {
+    id: created.data.id,
+    phase: 'floor',
+    block: 'oak_planks',
+    position: { x: 1, y: 64, z: 1 }
+  })
+
+  assert.equal(placement.ok, false)
+  assert.equal(placement.data.status, 'failed')
+  assert.equal(placement.data.code, 'BUILD_PLAN_PHASE_VIOLATION')
+
+  registry.buildPlanStore.advance(created.data.id, 'site_ready')
+  for (let x = 0; x < 5; x += 1) {
+    for (let z = 0; z < 5; z += 1) {
+      registry.buildPlanStore.recordPosition(
+        created.data.id,
+        { x, y: 64, z },
+        { phase: 'floor', block: 'oak_planks' }
+      )
+    }
+  }
+  registry.buildPlanStore.advance(created.data.id, 'floor')
+  const blockedDoorway = await registry.execute('place_build_plan_block', {
+    id: created.data.id,
+    phase: 'walls',
+    block: 'oak_planks',
+    position: { x: 2, y: 65, z: 0 }
+  })
+  assert.equal(blockedDoorway.ok, false)
+  assert.match(blockedDoorway.data.message, /doorway/i)
 })

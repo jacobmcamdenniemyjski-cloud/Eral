@@ -91,6 +91,7 @@ bash scripts/start-hermes.sh
 - `earl take <item> <amount>` — Withdraws items from a nearby container.
 - `earl equip <item>` — Equips or holds an item.
 - `earl attack <hostile>` — Attacks the nearest specified hostile mob.
+- `earl attack <animal> [amount]` — Hunts approved passive animals and collects their drops.
 - `earl combat <mode>` — Sets automatic combat to `passive`, `defensive`, `guard`, or `aggressive`.
 - `earl combat status` — Shows the automatic combat mode and protected player.
 - `earl task` — Shows Earl's current task in the console.
@@ -104,7 +105,7 @@ bash scripts/start-hermes.sh
 
 ## Structured skill registry
 
-Earl's chat commands and AI planners share the same 46 deterministic
+Earl's chat commands and AI planners share more than 60 deterministic
 skills. Each skill has a stable name, description, JSON input schema, timeout,
 and safety category. Inputs are validated with Ajv before Minecraft code runs,
 and every execution returns a structured success or error result.
@@ -237,8 +238,10 @@ earl ask harvest four wheat
 earl ask collect all wheat
 ```
 
-This batch operates existing farmland. Creating, tilling, irrigating, and
-expanding a new field remain separate future skills.
+Earl can also create a verified field with `create_farm`. The skill requires a
+level dirt/grass footprint, existing water within four blocks of every crop
+cell, a hoe, and enough seeds; it tills and plants each valid cell and confirms
+the resulting farmland/crop state.
 
 To try a different installed model for one PowerShell session:
 

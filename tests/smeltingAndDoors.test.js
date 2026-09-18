@@ -346,6 +346,27 @@ test('door traversal reaches the opposite side and can close behind Earl', async
   assert.equal(open, false)
 })
 
+test('door traversal has a bounded direct-walk fallback for an open doorway', async () => {
+  const destination = new Vec3(1, 64, 0)
+  let moving = false
+  const bot = {
+    entity: { position: new Vec3(-1, 64, 0) },
+    async lookAt() {},
+    setControlState(name, value) {
+      if (name === 'forward') moving = value
+    },
+    clearControlStates() { moving = false },
+    async waitForTicks() {
+      if (moving) bot.entity.position = bot.entity.position.offset(0.5, 0, 0)
+    }
+  }
+
+  const crossed = await traverseDoor.walkDirectlyThrough(bot, destination)
+  assert.equal(crossed, true)
+  assert.equal(moving, false)
+  assert.ok(bot.entity.position.distanceTo(destination) <= 1.25)
+})
+
 test('LLM selects one focused furnace tool for each request', () => {
   const definitions = [
     { name: 'smelt_item' },

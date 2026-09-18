@@ -9,9 +9,11 @@ const BANNED_FOOD = [
   'golden_apple'
 ]
 
-function configureSurvival(bot) {
+function configureSurvival(bot, options = {}) {
+  const actionCoordinator = options.actionCoordinator || null
   let armorTimer = null
   let equippingArmor = false
+  let armorDeferred = false
 
   function isArmor(item) {
     return Boolean(
@@ -22,7 +24,12 @@ function configureSurvival(bot) {
   }
 
   async function equipBestArmor() {
-    if (!bot.armorManager || equippingArmor) {
+    if (
+      !bot.armorManager ||
+      equippingArmor ||
+      (actionCoordinator && actionCoordinator.isBusy())
+    ) {
+      armorDeferred = true
       return
     }
 
@@ -34,7 +41,22 @@ function configureSurvival(bot) {
       console.error(`Automatic armor equip failed: ${error.message}`)
     } finally {
       equippingArmor = false
+      armorDeferred = false
     }
+  }
+
+  if (actionCoordinator) {
+    actionCoordinator.on('started', () => {
+      if (bot.autoEat && typeof bot.autoEat.disable === 'function') {
+        bot.autoEat.disable()
+      }
+    })
+    actionCoordinator.on('idle', () => {
+      if (bot.autoEat && typeof bot.autoEat.enable === 'function') {
+        bot.autoEat.enable()
+      }
+      if (armorDeferred) scheduleArmorCheck()
+    })
   }
 
   function scheduleArmorCheck() {

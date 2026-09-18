@@ -13,6 +13,7 @@ const makeItem = require('../crafting/makeItem')
 const getRecipes = require('../crafting/getRecipes')
 const smeltItem = require('../smelting/smeltItem')
 const attackNearestHostile = require('../combat/attackNearestHostile')
+const huntAnimals = require('../animals/huntAnimal')
 const storeItem = require('../inventory/storeItem')
 const takeItem = require('../inventory/takeItem')
 const equipItem = require('../inventory/equipItem')
@@ -22,12 +23,14 @@ const buildLine = require('../building/buildLine')
 const buildWall = require('../building/buildWall')
 const buildFloor = require('../building/buildFloor')
 const clearBuildSite = require('../building/clearBuildSite')
+const { inspectBuildSite } = clearBuildSite
 const {
   inspectShelter,
   validateBuildPlan
 } = require('../building/buildingContract')
 const farmCrops = require('../farming/farmCrops')
 const getFarmStatus = require('../farming/getFarmStatus')
+const createFarm = require('../farming/createFarm')
 const LocationStore = require('../locations/LocationStore')
 const {
   goToSavedLocation,
@@ -38,9 +41,10 @@ const eatNow = require('../survival/eatNow')
 const fleeFromHostiles = require('../movement/fleeFromHostiles')
 const traverseDoor = require('../movement/traverseDoor')
 const useBlock = require('../world/useBlock')
-const breakBlockAt = require('../world/breakBlockAt')
+const { breakBlockAt, inspectBlockAt } = require('../world/blockAt')
 const { resolveResourceName } = require('../core/parseItemRequest')
 const SkillRegistry = require('./SkillRegistry')
+const BuildPlanStore = require('../building/BuildPlanStore')
 
 const emptySchema = {
   type: 'object',
@@ -112,9 +116,16 @@ const buildPlanSchema = objectSchema({
 }, ['origin', 'width', 'depth', 'interiorHeight', 'doorPosition'])
 
 function createSkillRegistry(options) {
-  const { bot, scheduler, combatReflex, deathTracker } = options
+  const {
+    bot,
+    scheduler,
+    combatReflex,
+    deathTracker,
+    actionCoordinator
+  } = options
   const locationStore = options.locationStore || new LocationStore()
-  const registry = new SkillRegistry()
+  const buildPlanStore = options.buildPlanStore || new BuildPlanStore()
+  const registry = new SkillRegistry({ actionCoordinator })
 
   function normalize(name, kind) {
     return resolveResourceName(bot, name, kind) || name
@@ -125,6 +136,113 @@ function createSkillRegistry(options) {
     if (currentTask && currentTask.type === type && predicate(currentTask)) {
       scheduler.clearTask()
     }
+  }
+
+  async function gatherProtection() {
+    let locations = []
+    try {
+      locations = await locationStore.list()
+    } catch {}
+
+    return (position) => {
+      const plan = buildPlanStore.findProtectingPlan(position, { margin: 1 })
+      if (plan) return `inside protected build plan ${plan.id}`
+
+      for (const location of locations) {
+        if (!['home', 'farm'].includes(location.name)) continue
+        const horizontal = Math.max(
+          Math.abs(Number(position.x) - Number(location.x)),
+          Math.abs(Number(position.z) - Number(location.z))
+        )
+        const vertical = Math.abs(Number(position.y) - Number(location.y))
+        const radius = location.name === 'home' ? 8 : 5
+        if (horizontal <= radius && vertical <= 6) {
+          return `inside protected ${location.name} area`
+        }
+      }
+      return false
+    }
+  }
+
+  function plannedAreaFailure(positions) {
+    for (const position of positions) {
+      const plan = buildPlanStore.findProtectingPlan(position)
+      if (plan) {
+        return {
+          status: 'failed',
+          code: 'BUILD_PLAN_LEDGER_REQUIRED',
+          message: `Position ${position.x},${position.y},${position.z} belongs to build plan ${plan.id}; place its cells through place_build_plan_block.`
+        }
+      }
+    }
+    return null
+  }
+
+  function linePositions(origin, direction, length) {
+    const offsets = {
+      east: [1, 0, 0], west: [-1, 0, 0], up: [0, 1, 0],
+      down: [0, -1, 0], south: [0, 0, 1], north: [0, 0, -1]
+    }
+    const value = offsets[direction] || [0, 0, 0]
+    return Array.from({ length }, (_, index) => ({
+      x: origin.x + value[0] * index,
+      y: origin.y + value[1] * index,
+      z: origin.z + value[2] * index
+    }))
+  }
+
+  function assertPlanPlacement(plan, phase, position) {
+    const definition = plan.definition
+    const origin = definition.origin
+    const maxX = origin.x + definition.width - 1
+    const maxZ = origin.z + definition.depth - 1
+    const maxWallY = origin.y + definition.interiorHeight
+    const perimeter = position.x === origin.x || position.x === maxX ||
+      position.z === origin.z || position.z === maxZ
+    const phasePrerequisite = {
+      floor: ['site_ready', 'floor'],
+      walls: ['floor', 'walls'],
+      roof: ['walls', 'roof'],
+      door_and_windows: ['roof', 'door_and_windows'],
+      furnishing: ['door_and_windows', 'furnishing']
+    }
+    if (!phasePrerequisite[phase].includes(plan.phase)) {
+      return `Plan ${plan.id} is at ${plan.phase}; ${phase} placements are not yet allowed.`
+    }
+    if (phase === 'floor' && position.y !== origin.y) {
+      return `Floor cells must be at y=${origin.y}.`
+    }
+    if (
+      phase === 'walls' &&
+      (!perimeter || position.y < origin.y + 1 || position.y > maxWallY)
+    ) {
+      return 'Wall cells must be on the perimeter within the planned interior height.'
+    }
+    const door = definition.doorPosition
+    if (
+      phase === 'walls' &&
+      position.x === door.x &&
+      position.z === door.z &&
+      [door.y, door.y + 1].includes(position.y)
+    ) {
+      return 'Wall placement cannot fill either cell of the planned two-block doorway.'
+    }
+    if (phase === 'roof' && position.y !== maxWallY + 1) {
+      return `Roof cells must be at y=${maxWallY + 1}.`
+    }
+    if (
+      phase === 'door_and_windows' &&
+      (!perimeter || position.y < origin.y + 1 || position.y > maxWallY)
+    ) {
+      return 'Door and window cells must be on the planned perimeter.'
+    }
+    if (
+      phase === 'furnishing' &&
+      (perimeter || position.y < origin.y + 1 || position.y > maxWallY)
+    ) {
+      return 'Furnishing cells must be inside the planned room.'
+    }
+    return null
   }
 
   registry.register({
@@ -455,14 +573,44 @@ function createSkillRegistry(options) {
 
   registry.register({
     name: 'gather_block',
-    description: 'Mine and collect nearby blocks. Generic log, logs, wood, tree, and trees names are accepted and resolve to a nearby log species.',
+    description: 'Mine and collect nearby natural resource blocks with verified inventory/container gains. Refuses active build footprints, saved home/farm areas, and normally player-placed blocks; use break_block_at for an exact intentional removal.',
     inputSchema: itemAmountSchema('block'),
     timeoutMs: 600000,
     safety: 'world_write',
-    execute: async ({ block, amount }, context) => gatherBlock(
+    execute: async ({ block, amount }, context) => {
+      const isProtectedPosition = await gatherProtection()
+      return gatherBlock(
+        bot,
+        normalize(block, 'block'),
+        amount,
+        { signal: context.signal, isProtectedPosition }
+      )
+    }
+  })
+
+  registry.register({
+    name: 'inspect_block_at',
+    description: 'Read the exact block and state at world coordinates without changing the world.',
+    inputSchema: objectSchema({ position: positionSchema }, ['position']),
+    safety: 'read_only',
+    execute: async ({ position }) => inspectBlockAt(bot, position)
+  })
+
+  registry.register({
+    name: 'break_block_at',
+    description: 'Break exactly one block at known coordinates only when its current name matches expectedBlock. Use this for deliberate repairs or removing a known placed block; never use gather_block on structures.',
+    inputSchema: objectSchema({
+      position: positionSchema,
+      expectedBlock: resourceNameSchema('Exact block expected at the target position.')
+    }, ['position', 'expectedBlock']),
+    timeoutMs: 120000,
+    safety: 'world_write',
+    execute: async ({ position, expectedBlock }, context) => breakBlockAt(
       bot,
-      normalize(block, 'block'),
-      amount,
+      {
+        position,
+        expectedBlock: normalize(expectedBlock, 'block')
+      },
       { signal: context.signal }
     )
   })
@@ -529,6 +677,27 @@ function createSkillRegistry(options) {
     }, ['crop']),
     safety: 'read_only',
     execute: async ({ crop }) => getFarmStatus(bot, crop, 16)
+  })
+
+  registry.register({
+    name: 'create_farm',
+    description: 'Create a verified, level, irrigated crop field. Preserves water, clears only small plants, tills dirt or grass, plants every usable cell, and refuses unsafe terrain or missing resources.',
+    inputSchema: objectSchema({
+      crop: {
+        type: 'string',
+        enum: ['wheat', 'carrots', 'potatoes', 'beetroots']
+      },
+      origin: positionSchema,
+      width: { type: 'integer', minimum: 1, maximum: 9 },
+      depth: { type: 'integer', minimum: 1, maximum: 9 }
+    }, ['crop', 'origin', 'width', 'depth']),
+    timeoutMs: 900000,
+    safety: 'world_write',
+    execute: async (input, context) => createFarm(
+      bot,
+      input,
+      { signal: context.signal }
+    )
   })
 
   registry.register({
@@ -656,35 +825,97 @@ function createSkillRegistry(options) {
   })
 
   registry.register({
-    name: 'break_block_at',
-    description: 'Break the block at exact integer coordinates and verify that the server removed it. Use this to correct a misplaced block; use gather_block for resource collection.',
-    inputSchema: objectSchema({
-      position: positionSchema
-    }, ['position']),
-    timeoutMs: 60000,
-    safety: 'world_write',
-    execute: async ({ position }, context) => breakBlockAt(
-      bot,
-      position,
-      { signal: context.signal }
-    )
-  })
-
-  registry.register({
     name: 'place_block',
-    description: 'Place one inventory block nearby or at exact coordinates.',
+    description: 'Place one inventory block at exact coordinates outside every persistent build-plan envelope. Use place_build_plan_block for a planned shelter.',
     inputSchema: objectSchema({
       block: resourceNameSchema('Minecraft block name.'),
       position: positionSchema
     }, ['block']),
     timeoutMs: 60000,
     safety: 'world_write',
-    execute: async ({ block, position }, context) => placeBlock(
-      bot,
-      normalize(block, 'block'),
-      position || null,
-      { signal: context.signal }
-    )
+    execute: async ({ block, position }, context) => {
+      if (!position && buildPlanStore.list({ status: 'active' }).length > 0) {
+        return {
+          status: 'failed',
+          message: 'An active build plan exists; provide exact coordinates through place_build_plan_block.'
+        }
+      }
+      const protectedPlan = position
+        ? buildPlanStore.findProtectingPlan(position)
+        : null
+      if (protectedPlan) {
+        return {
+          status: 'failed',
+          message: `Position belongs to build plan ${protectedPlan.id}; use place_build_plan_block so the placement is persisted.`
+        }
+      }
+      return placeBlock(
+        bot,
+        normalize(block, 'block'),
+        position || null,
+        { signal: context.signal }
+      )
+    }
+  })
+
+  registry.register({
+    name: 'place_build_plan_block',
+    description: 'Place and server-confirm one block inside a persistent build plan, then record the exact cell, phase, and block in the restart ledger.',
+    inputSchema: objectSchema({
+      id: { type: 'integer', minimum: 1 },
+      phase: {
+        type: 'string',
+        enum: ['floor', 'walls', 'roof', 'door_and_windows', 'furnishing']
+      },
+      block: resourceNameSchema('Minecraft block name.'),
+      position: positionSchema
+    }, ['id', 'phase', 'block', 'position']),
+    timeoutMs: 60000,
+    safety: 'world_write',
+    execute: async ({ id, phase, block, position }, context) => {
+      const plan = buildPlanStore.get(id)
+      if (!plan) throw new Error(`Unknown build plan id: ${id}`)
+      if (plan.status !== 'active') {
+        return {
+          status: 'failed',
+          message: `Build plan ${id} is ${plan.status}; review and resume it before placing blocks.`
+        }
+      }
+      const protectingPlan = buildPlanStore.findProtectingPlan(position)
+      if (!protectingPlan || protectingPlan.id !== id) {
+        return {
+          status: 'failed',
+          message: `Position is outside the locked envelope for build plan ${id}.`
+        }
+      }
+      const normalizedBlock = normalize(block, 'block')
+      const placementProblem = assertPlanPlacement(plan, phase, position)
+      if (placementProblem) {
+        return {
+          status: 'failed',
+          code: 'BUILD_PLAN_PHASE_VIOLATION',
+          message: placementProblem
+        }
+      }
+      const result = await placeBlock(
+        bot,
+        normalizedBlock,
+        position,
+        { signal: context.signal }
+      )
+      if (!result || (result.status !== 'completed' && !result.skipped)) {
+        return result
+      }
+      buildPlanStore.recordPosition(id, position, {
+        phase,
+        block: normalizedBlock,
+        confirmedAt: new Date().toISOString()
+      })
+      return {
+        ...result,
+        plan: buildPlanStore.get(id)
+      }
+    }
   })
 
   registry.register({
@@ -696,8 +927,162 @@ function createSkillRegistry(options) {
   })
 
   registry.register({
+    name: 'create_build_plan',
+    description: 'Validate and persist one locked Building Contract V1 plan. Later build phases must use this plan id so origin, elevation, footprint, and doorway cannot drift.',
+    inputSchema: objectSchema({
+      ...buildPlanSchema.properties,
+      material: resourceNameSchema('Optional primary building material.'),
+      requestId: { type: 'integer', minimum: 1 },
+      intentionId: { type: 'integer', minimum: 1 }
+    }, buildPlanSchema.required),
+    safety: 'world_write',
+    execute: async (input) => {
+      const definition = {
+        origin: input.origin,
+        width: input.width,
+        depth: input.depth,
+        interiorHeight: input.interiorHeight,
+        doorPosition: input.doorPosition
+      }
+      const validation = validateBuildPlan(definition)
+      if (!validation.valid) {
+        return {
+          status: 'failed',
+          reason: 'Build plan does not satisfy Building Contract V1.',
+          validation
+        }
+      }
+      return buildPlanStore.create(definition, {
+        material: input.material || null,
+        requestId: input.requestId,
+        intentionId: input.intentionId
+      })
+    }
+  })
+
+  registry.register({
+    name: 'get_build_plan',
+    description: 'Read one persistent build plan, including its locked geometry, current phase, confirmed positions, and failures.',
+    inputSchema: objectSchema({
+      id: { type: 'integer', minimum: 1 }
+    }, ['id']),
+    safety: 'read_only',
+    execute: async ({ id }) => buildPlanStore.get(id)
+  })
+
+  registry.register({
+    name: 'list_build_plans',
+    description: 'List persistent build plans. Paused plans require an explicit decision before work resumes.',
+    inputSchema: objectSchema({
+      status: {
+        type: 'string',
+        enum: ['all', 'active', 'paused', 'completed', 'failed']
+      }
+    }),
+    safety: 'read_only',
+    execute: async ({ status }) => buildPlanStore.list({ status: status || 'all' })
+  })
+
+  registry.register({
+    name: 'resume_build_plan',
+    description: 'Explicitly resume one paused build plan after inspecting its stored geometry and current world state.',
+    inputSchema: objectSchema({
+      id: { type: 'integer', minimum: 1 },
+      reason: { type: 'string', minLength: 1, maxLength: 240 }
+    }, ['id', 'reason']),
+    safety: 'control',
+    execute: async ({ id, reason }) => buildPlanStore.resume(id, reason)
+  })
+
+  registry.register({
+    name: 'abort_build_plan',
+    description: 'Permanently stop an obsolete or superseded build plan without altering blocks already placed.',
+    inputSchema: objectSchema({
+      id: { type: 'integer', minimum: 1 },
+      reason: { type: 'string', minLength: 1, maxLength: 240 }
+    }, ['id', 'reason']),
+    safety: 'control',
+    execute: async ({ id, reason }) => buildPlanStore.abort(id, reason)
+  })
+
+  registry.register({
+    name: 'advance_build_plan',
+    description: 'Record a verified phase transition for a persistent build plan. This never changes the locked geometry.',
+    inputSchema: objectSchema({
+      id: { type: 'integer', minimum: 1 },
+      phase: {
+        type: 'string',
+        enum: ['planned', 'site_ready', 'floor', 'walls', 'roof', 'door_and_windows', 'furnishing', 'inspection', 'door_test', 'completed']
+      },
+      note: { type: 'string', maxLength: 240 }
+    }, ['id', 'phase']),
+    safety: 'world_write',
+    execute: async ({ id, phase, note }) => buildPlanStore.advance(id, phase, note)
+  })
+
+  registry.register({
+    name: 'prepare_build_plan_site',
+    description: 'Clear the site for an existing persistent build plan using its locked origin and footprint, then advance it to site_ready only after verification.',
+    inputSchema: objectSchema({
+      id: { type: 'integer', minimum: 1 },
+      margin: { type: 'integer', minimum: 0, maximum: 3 }
+    }, ['id']),
+    timeoutMs: 600000,
+    safety: 'world_write',
+    execute: async ({ id, margin }, context) => {
+      const plan = buildPlanStore.get(id)
+      if (!plan) throw new Error(`Unknown build plan id: ${id}`)
+      const result = await clearBuildSite(bot, {
+        origin: plan.definition.origin,
+        width: plan.definition.width,
+        depth: plan.definition.depth,
+        margin: margin === undefined ? 2 : margin,
+        clearanceHeight: plan.definition.interiorHeight + 1
+      }, { signal: context.signal })
+      if (result && result.ready) {
+        buildPlanStore.advance(id, 'site_ready', 'Site clearing verified.')
+      } else {
+        buildPlanStore.pause(id, 'Site preparation requires review or leveling.')
+      }
+      return { plan: buildPlanStore.get(id), site: result }
+    }
+  })
+
+  registry.register({
+    name: 'inspect_build_plan_shelter',
+    description: 'Inspect a shelter using the immutable geometry stored under its build plan id and persist the inspection result.',
+    inputSchema: objectSchema({
+      id: { type: 'integer', minimum: 1 }
+    }, ['id']),
+    safety: 'world_write',
+    execute: async ({ id }) => {
+      const plan = buildPlanStore.get(id)
+      if (!plan) throw new Error(`Unknown build plan id: ${id}`)
+      const inspection = inspectShelter(bot, plan.definition)
+      if (inspection.valid) {
+        buildPlanStore.advance(id, 'inspection', 'Shelter inspection passed.')
+      }
+      return { plan: buildPlanStore.get(id), inspection }
+    }
+  })
+
+  registry.register({
+    name: 'inspect_build_site',
+    description: 'Read-only survey of vegetation, raised blocks, and unsupported floor cells for a proposed rectangular site. This never breaks or places blocks.',
+    inputSchema: objectSchema({
+      origin: positionSchema,
+      width: { type: 'integer', minimum: 3, maximum: 16 },
+      depth: { type: 'integer', minimum: 3, maximum: 16 },
+      margin: { type: 'integer', minimum: 0, maximum: 3 },
+      clearanceHeight: { type: 'integer', minimum: 2, maximum: 4 }
+    }, ['origin', 'width', 'depth']),
+    safety: 'read_only',
+    execute: async (input) => inspectBuildSite(bot, input)
+  })
+
+  registry.register({
     name: 'clear_build_site',
-    description: 'Prepare a rectangular build footprint plus margin by directly breaking grass, ferns, flowers, and other small plants. It confirms every break and reports raised or unsupported cells that still need leveling.',
+    description: 'Destructively prepare a rectangular build footprint plus margin by directly breaking grass, ferns, flowers, and other small plants. Inspect first with inspect_build_site. It confirms every break and reports raised or unsupported cells that still need leveling.',
     inputSchema: objectSchema({
       origin: positionSchema,
       width: { type: 'integer', minimum: 3, maximum: 16 },
@@ -740,7 +1125,7 @@ function createSkillRegistry(options) {
 
   registry.register({
     name: 'build_line',
-    description: 'Build a straight line of blocks from an origin.',
+    description: 'Build a straight line outside persistent build-plan envelopes. Planned shelters must use place_build_plan_block so every cell is recorded.',
     inputSchema: objectSchema({
       block: resourceNameSchema('Minecraft block name.'),
       origin: positionSchema,
@@ -752,8 +1137,10 @@ function createSkillRegistry(options) {
     }, ['block', 'origin', 'direction', 'length']),
     timeoutMs: 180000,
     safety: 'world_write',
-    execute: async ({ block, origin, direction, length }, context) => (
-      buildLine(
+    execute: async ({ block, origin, direction, length }, context) => {
+      const blocked = plannedAreaFailure(linePositions(origin, direction, length))
+      if (blocked) return blocked
+      return buildLine(
         bot,
         normalize(block, 'block'),
         origin,
@@ -761,7 +1148,7 @@ function createSkillRegistry(options) {
         length,
         { signal: context.signal }
       )
-    )
+    }
   })
 
   registry.register({
@@ -779,8 +1166,14 @@ function createSkillRegistry(options) {
     }, ['block', 'origin', 'direction', 'width', 'height']),
     timeoutMs: 300000,
     safety: 'world_write',
-    execute: async ({ block, origin, direction, width, height }, context) => (
-      buildWall(
+    execute: async ({ block, origin, direction, width, height }, context) => {
+      const row = linePositions(origin, direction, width)
+      const positions = row.flatMap((position) => (
+        Array.from({ length: height }, (_, y) => ({ ...position, y: origin.y + y }))
+      ))
+      const blocked = plannedAreaFailure(positions)
+      if (blocked) return blocked
+      return buildWall(
         bot,
         normalize(block, 'block'),
         origin,
@@ -789,7 +1182,7 @@ function createSkillRegistry(options) {
         height,
         { signal: context.signal }
       )
-    )
+    }
   })
 
   registry.register({
@@ -803,14 +1196,24 @@ function createSkillRegistry(options) {
     }, ['block', 'origin', 'width', 'depth']),
     timeoutMs: 600000,
     safety: 'world_write',
-    execute: async ({ block, origin, width, depth }, context) => buildFloor(
-      bot,
-      normalize(block, 'block'),
-      origin,
-      width,
-      depth,
-      { signal: context.signal }
-    )
+    execute: async ({ block, origin, width, depth }, context) => {
+      const positions = []
+      for (let z = 0; z < depth; z += 1) {
+        for (let x = 0; x < width; x += 1) {
+          positions.push({ x: origin.x + x, y: origin.y, z: origin.z + z })
+        }
+      }
+      const blocked = plannedAreaFailure(positions)
+      if (blocked) return blocked
+      return buildFloor(
+        bot,
+        normalize(block, 'block'),
+        origin,
+        width,
+        depth,
+        { signal: context.signal }
+      )
+    }
   })
 
   registry.register({
@@ -846,6 +1249,50 @@ function createSkillRegistry(options) {
         )
       } finally {
         clearTaskIf('attack', (task) => task.target === target)
+      }
+    }
+  })
+
+  registry.register({
+    name: 'hunt_animal',
+    description: 'Hunt approved passive animals for food or materials, confirm each kill, and collect the resulting drops. Supports sheep, cows, pigs, chickens, rabbits, and mooshrooms.',
+    inputSchema: objectSchema({
+      animal: {
+        type: 'string',
+        enum: Array.from(huntAnimals.PASSIVE_ANIMALS).sort(),
+        description: 'Approved passive animal to hunt.'
+      },
+      amount: {
+        type: 'integer',
+        minimum: 1,
+        maximum: 16,
+        default: 1
+      },
+      maxDistance: {
+        type: 'integer',
+        minimum: 1,
+        maximum: 32,
+        default: 16
+      }
+    }, ['animal', 'amount', 'maxDistance']),
+    timeoutMs: 300000,
+    safety: 'combat',
+    execute: async ({ animal, amount, maxDistance }, context) => {
+      const accepted = scheduler.setTask({
+        type: 'hunt',
+        target: animal,
+        amount,
+        priority: 250
+      })
+      if (!accepted) return false
+
+      try {
+        return await huntAnimals(bot, animal, amount, {
+          maxDistance,
+          signal: context.signal
+        })
+      } finally {
+        clearTaskIf('hunt', (task) => task.target === animal)
       }
     }
   })
@@ -894,6 +1341,7 @@ function createSkillRegistry(options) {
   })
 
   registry.locationStore = locationStore
+  registry.buildPlanStore = buildPlanStore
   return registry
 }
 

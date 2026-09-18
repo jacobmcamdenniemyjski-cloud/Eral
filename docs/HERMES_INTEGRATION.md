@@ -101,13 +101,18 @@ Linux, macOS, or WSL:
 bash scripts/start-hermes.sh
 ```
 
-The launcher:
+The Windows launcher:
 
-1. starts Earl if its API is not already running;
-2. temporarily installs Earl's personality as the Hermes SOUL;
-3. loads this repository's `HERMES.md` control contract;
-4. starts an interactive Hermes session;
-5. restores the previous Hermes SOUL on exit.
+1. starts Earl under a bounded restart supervisor if its API is not already
+   running;
+2. waits for a real Minecraft spawn, not merely an open API port;
+3. writes combined body output and crash details to a timestamped file under
+   `data/logs/`;
+4. temporarily installs Earl's personality as the Hermes SOUL;
+5. loads this repository's `HERMES.md` control contract;
+6. starts an interactive Hermes session;
+7. restores the previous Hermes SOUL and stops the complete Earl process tree
+   on exit.
 
 It also enables the
 [Autonomous Life & Decision System](AUTONOMY_V1.md) unless
@@ -216,6 +221,11 @@ A non-loopback API bind is rejected unless `EARL_API_TOKEN` is set. The CLI
 sends that token automatically. Keep the endpoint private; it can move, build,
 fight, and use Earl's inventory.
 
+Passive resources use the separate `hunt_animal` skill. Hermes can run
+`node bin/mc.js hunt sheep 3`; the compatibility command `fight sheep` routes
+to the same allowlisted action rather than `attack_hostile`. The body confirms
+each kill, collects nearby drops, and returns the inventory gains.
+
 The launchers use Hermes YOLO mode for unattended Minecraft tool calls. Set
 `EARL_HERMES_YOLO=false` to retain terminal approval prompts.
 
@@ -243,8 +253,9 @@ JSON schema at staging, approval, and execution.
 ## Restart recovery
 
 Player messages, queued requests, task history, and learned procedures persist
-under `data/`. On restart, a request that Hermes had claimed returns to
-`pending`. An action that was `starting` or `running` is recorded as
+under `data/`. On restart, a request that Hermes had claimed becomes
+`needs_review` and will not replay until an operator explicitly resumes it
+after checking the world. An action that was `starting` or `running` is recorded as
 `interrupted`; Earl deliberately does not replay physical actions because the
 Minecraft world may have changed while it was offline.
 

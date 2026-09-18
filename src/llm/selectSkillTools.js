@@ -68,19 +68,19 @@ const TOOL_GROUPS = [
     names: [
       'get_scene',
       'get_inventory',
-      'validate_build_plan',
-      'clear_build_site',
-      'place_block',
-      'build_line',
-      'build_wall',
-      'build_floor',
-      'inspect_shelter',
+      'create_build_plan',
+      'get_build_plan',
+      'inspect_build_site',
+      'prepare_build_plan_site',
+      'place_build_plan_block',
+      'advance_build_plan',
+      'inspect_build_plan_shelter',
       'traverse_nearby_door'
     ]
   },
   {
     pattern: /\b(clear|prepare|clean|terraform)\b.*\b(site|footprint|area|grass|plants?|flowers?)\b/i,
-    names: ['get_scene', 'clear_build_site']
+    names: ['get_scene', 'inspect_build_site', 'clear_build_site']
   },
   {
     pattern: /\b(attack|kill|fight|defend|protect|combat|guard|aggressive|passive|hostile|zombie|skeleton|spider|creeper)\b/i,
@@ -162,6 +162,10 @@ const FURNACE_INTENTS = [
 
 const FARM_INTENTS = [
   {
+    pattern: /\b(?:build|create|start|make|prepare)\b.*\b(?:farm|field)\b/i,
+    names: ['get_scene', 'get_inventory', 'create_farm']
+  },
+  {
     pattern: /\b(?:gather|collect|get|find)\b.*\b(?:wheat\s+)?seeds?\b|\b(?:wheat\s+)?seeds?\b.*\b(?:gather|collect|get|find)\b/i,
     names: ['gather_seeds']
   },
@@ -170,6 +174,11 @@ const FARM_INTENTS = [
     names: ['farm_all_available']
   }
 ]
+
+const ANIMAL_INTENTS = [{
+  pattern: /\b(?:hunt|kill|fight|slaughter|get|collect)\b.*\b(?:sheep|cows?|pigs?|chickens?|rabbits?|mooshrooms?|wool|mutton|meat)\b|\b(?:wool|mutton|meat)\b.*\b(?:sheep|hunt|collect|get)\b/i,
+  names: ['hunt_animal']
+}]
 
 function selectSkillTools(prompt, definitions, options = {}) {
   const maxTools = options.maxTools || 10
@@ -196,6 +205,13 @@ function selectSkillTools(prompt, definitions, options = {}) {
       .slice(0, maxTools)
   }
 
+  for (const intent of ANIMAL_INTENTS) {
+    if (!intent.pattern.test(prompt)) continue
+    return definitions
+      .filter((definition) => intent.names.includes(definition.name))
+      .slice(0, maxTools)
+  }
+
   for (const group of TOOL_GROUPS) {
     if (!group.pattern.test(prompt)) continue
     for (const name of group.names) selectedNames.add(name)
@@ -211,3 +227,4 @@ module.exports.FARM_INTENTS = FARM_INTENTS
 module.exports.LOCATION_INTENTS = LOCATION_INTENTS
 module.exports.TOOL_GROUPS = TOOL_GROUPS
 module.exports.FURNACE_INTENTS = FURNACE_INTENTS
+module.exports.ANIMAL_INTENTS = ANIMAL_INTENTS

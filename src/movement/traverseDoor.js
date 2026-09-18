@@ -20,28 +20,6 @@ function distance(left, right) {
   )
 }
 
-async function moveToSide(bot, side, signal) {
-  const radii = [0, 1]
-  let lastError = null
-
-  for (const radius of radii) {
-    try {
-      await bot.pathfinder.goto(
-        new goals.GoalNear(side.x, side.y, side.z, radius)
-      )
-      if (signal && signal.aborted) throw signal.reason
-      if (distance(bot.entity.position, side) <= 1.75) return
-    } catch (error) {
-      if (signal && signal.aborted) throw error
-      lastError = error
-    }
-  }
-
-  throw lastError || new Error(
-    `could not reach the doorway side at ${side.x},${side.y},${side.z}`
-  )
-}
-
 function doorSides(block) {
   const properties = DoorOpener.blockProperties(block)
   const [x, z] = FACING_OFFSETS[properties.facing] || FACING_OFFSETS.north
@@ -81,6 +59,45 @@ function findNearbyDoor(bot, maxDistance) {
   ))[0] || null
 }
 
+async function walkDirectlyThrough(bot, destination, signal) {
+  if (
+    typeof bot.setControlState !== 'function' ||
+    typeof bot.waitForTicks !== 'function' ||
+    typeof bot.lookAt !== 'function'
+  ) return false
+
+  const lookTarget = typeof destination.offset === 'function'
+    ? destination.offset(0.5, 1, 0.5)
+    : { x: destination.x + 0.5, y: destination.y + 1, z: destination.z + 0.5 }
+  await bot.lookAt(lookTarget, true)
+  bot.setControlState('forward', true)
+  try {
+    for (let tick = 0; tick < 35; tick += 1) {
+      if (signal && signal.aborted) throw signal.reason
+      if (distance(bot.entity.position, destination) <= 1.25) return true
+      await bot.waitForTicks(1)
+    }
+  } finally {
+    if (typeof bot.clearControlStates === 'function') bot.clearControlStates()
+    else bot.setControlState('forward', false)
+  }
+  return distance(bot.entity.position, destination) <= 1.25
+}
+
+async function crossDoor(bot, destination, signal) {
+  try {
+    await bot.pathfinder.goto(
+      new goals.GoalNear(destination.x, destination.y, destination.z, 1)
+    )
+  } catch (error) {
+    const crossed = await walkDirectlyThrough(bot, destination, signal)
+    if (!crossed) throw error
+  }
+  if (distance(bot.entity.position, destination) > 1.25) {
+    await walkDirectlyThrough(bot, destination, signal)
+  }
+}
+
 async function traverseDoor(bot, options = {}) {
   const {
     signal,
@@ -101,13 +118,15 @@ async function traverseDoor(bot, options = {}) {
   const nearSide = sides[0]
   const farSide = sides[1]
 
-  if (distance(bot.entity.position, nearSide) > 1.75) {
-    await moveToSide(bot, nearSide, signal)
+  if (distance(bot.entity.position, nearSide) > 1.5) {
+    await bot.pathfinder.goto(
+      new goals.GoalNear(nearSide.x, nearSide.y, nearSide.z, 1)
+    )
   }
   if (signal && signal.aborted) throw signal.reason
 
   await opener.setOpen(door, true)
-  await moveToSide(bot, farSide, signal)
+  await crossDoor(bot, farSide, signal)
   if (signal && signal.aborted) throw signal.reason
 
   const finalDistance = distance(bot.entity.position, farSide)
@@ -117,7 +136,7 @@ async function traverseDoor(bot, options = {}) {
 
   if (returnThrough) {
     await opener.setOpen(door, true)
-    await moveToSide(bot, nearSide, signal)
+    await crossDoor(bot, nearSide, signal)
     const returnDistance = distance(bot.entity.position, nearSide)
     if (returnDistance > 1.25) {
       throw new Error(
@@ -141,4 +160,4 @@ async function traverseDoor(bot, options = {}) {
 module.exports = traverseDoor
 module.exports.doorSides = doorSides
 module.exports.findNearbyDoor = findNearbyDoor
-module.exports.moveToSide = moveToSide
+module.exports.walkDirectlyThrough = walkDirectlyThrough

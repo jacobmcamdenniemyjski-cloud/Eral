@@ -7,8 +7,8 @@ procedure, not a prebuilt house template.
 ## Required order
 
 1. Survey the site and select a single finished floor elevation.
-2. Validate the footprint and door position with `validate_build_plan`.
-3. Clear the footprint plus a two-block margin with `clear_build_site`.
+2. Persist and validate the footprint with `create_build_plan`; retain its id.
+3. Clear the stored footprint with `prepare_build_plan_site`.
 4. Correct any raised blocks or unsupported floor cells reported by site prep.
 5. Build the entire floor.
 6. Build walls and roof with at least two blocks of interior headroom; three is
@@ -16,7 +16,8 @@ procedure, not a prebuilt house template.
 7. Install windows and then a two-block door on the planned floor-aligned
    threshold.
 8. Add storage, a crafting table, furnace, and lighting.
-9. Run `inspect_shelter`, repair every reported problem, and inspect again.
+9. Run `inspect_build_plan_shelter` with the plan id, repair every reported
+   problem, and inspect again.
 10. Use `traverse_nearby_door` with `returnThrough: true` to prove Earl can
     enter and exit.
 
@@ -37,6 +38,10 @@ is the lower half of the door and must use `origin.y + 1`.
 
 The doorway must be on a perimeter wall, not a corner. Its inside and outside
 approach cells must each have two blocks of clearance.
+
+The plan store locks these coordinates across phases and restarts. Active plans
+restart as paused so Earl must inspect the world before resuming. Phase changes
+are monotonic and cannot skip an unverified stage.
 
 ## Required finished features
 

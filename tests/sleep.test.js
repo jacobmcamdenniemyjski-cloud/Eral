@@ -24,6 +24,9 @@ function createBot(options = {}) {
     },
     async sleep() {
       sleepCalls += 1
+      if (options.firstSleepFails && sleepCalls === 1) {
+        throw new Error('bot is not sleeping')
+      }
       bot.isSleeping = true
     }
   }
@@ -65,4 +68,13 @@ test('sleep action does not reuse a bed when already sleeping', async () => {
   assert.equal(result.alreadySleeping, true)
   assert.equal(calls.path, 0)
   assert.equal(calls.sleep, 0)
+})
+
+test('sleep action retries from a bed side after an interaction failure', async () => {
+  const { bot, calls } = createBot({ firstSleepFails: true })
+  const result = await sleepInBed(bot)
+
+  assert.equal(result.sleeping, true)
+  assert.equal(calls.sleep, 2)
+  assert.equal(calls.path, 2)
 })

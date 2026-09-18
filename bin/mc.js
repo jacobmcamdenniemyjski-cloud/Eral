@@ -5,21 +5,30 @@ const baseUrl = (
   'http://127.0.0.1:3001'
 ).replace(/\/$/, '')
 const token = process.env.EARL_API_TOKEN || ''
+const {
+  isPassiveAnimal,
+  normalizeAnimalName
+} = require('../src/animals/huntAnimal')
 
 function usage(message) {
   if (message) console.error(message)
   console.error([
     'Usage: node bin/mc.js <command> [arguments]',
     'Observe: status, inventory, nearby [range], scene [range], skills',
-    'Messages: read_chat, commands, wait [seconds], listen, claim ID, complete ID [result]',
-    '          chat MESSAGE',
+    'Messages: read_chat, commands [status], wait [seconds], listen, claim ID, complete ID [result]',
+    '          recover ID, fail ID [reason], chat MESSAGE',
     'Actions: follow PLAYER, collect BLOCK COUNT, craft ITEM COUNT, goto X Y Z',
-    '         fight MOB, flee [distance], eat, pickup [count], sleep',
+    '         fight MOB [count], hunt ANIMAL [count], flee [distance], eat, pickup [count], sleep',
     '         recipes ITEM, use BLOCK, door [close|test], seeds [count], farm CROP COUNT',
-    'Building: site X Y Z WIDTH DEPTH [MARGIN], build_plan JSON, inspect_shelter JSON',
+    '         create_farm CROP X Y Z WIDTH DEPTH, inspect_block X Y Z',
+    '         break_block X Y Z EXPECTED_BLOCK',
+    'Building: plan_create JSON, plan_get ID, plan_advance ID PHASE [NOTE]',
+    '          plan_place ID PHASE BLOCK X Y Z, plan_resume ID REASON, plan_abort ID REASON',
+    '          inspect_site X Y Z WIDTH DEPTH [MARGIN], clear_site X Y Z WIDTH DEPTH [MARGIN]',
+    '          build_plan JSON, inspect_shelter JSON',
     '          smelt ITEM COUNT [fuel]',
     'Locations: mark NAME, marks, go_mark NAME, unmark NAME',
-    'Recovery: deaths, deathpoint, task, cancel',
+    'Recovery: deaths, deathpoint, recovery, recovery_clear, task, actions, build_plans [status], cancel',
     'Autonomy: autonomy, autonomy_candidates, autonomy_on, autonomy_off, autonomy_tick',
     'Procedures: procedures [status], procedure_stage JSON, procedure_approve ID',
     '            procedure_reject ID REASON, procedure_run ID',
@@ -92,7 +101,7 @@ async function main() {
     case 'read_chat':
       return request('GET', `/chat?after=${integer(args[0], 0)}`)
     case 'commands':
-      return request('GET', '/commands')
+      return request('GET', `/commands?status=${args[0] || 'pending'}`)
     case 'wait':
     case 'wait_command':
       return request(
@@ -118,12 +127,20 @@ async function main() {
       return request('POST', `/commands/${integer(args[0])}/fail`, {
         error: args.slice(1).join(' ') || 'Hermes could not complete the request.'
       })
+    case 'recover':
+    case 'resume_command':
+      if (!args[0]) return usage('recover requires a command id.')
+      return request('POST', `/commands/${integer(args[0])}/resume`, {})
     case 'chat':
     case 'say':
       if (args.length === 0) return usage('chat requires a message.')
       return request('POST', '/action/chat', { message: args.join(' ') })
     case 'task':
       return request('GET', '/task')
+    case 'actions':
+      return request('GET', '/actions')
+    case 'build_plans':
+      return request('GET', `/build-plans?status=${args[0] || 'all'}`)
     case 'tasks':
       return request('GET', '/tasks')
     case 'cancel':
@@ -195,9 +212,25 @@ async function main() {
       }, true)
     case 'fight':
     case 'attack':
+      if (isPassiveAnimal(args[0])) {
+        return execute('hunt_animal', {
+          animal: normalizeAnimalName(args[0]),
+          amount: integer(args[1], 1),
+          maxDistance: 16
+        })
+      }
       return execute('attack_hostile', {
         mob: args[0] || 'zombie',
         maxDistance: integer(args[1], 16)
+      })
+    case 'hunt':
+      if (!isPassiveAnimal(args[0])) {
+        return usage('hunt requires sheep, cow, pig, chicken, rabbit, or mooshroom.')
+      }
+      return execute('hunt_animal', {
+        animal: normalizeAnimalName(args[0]),
+        amount: integer(args[1], 1),
+        maxDistance: integer(args[2], 16)
       })
     case 'flee':
       return execute('flee_from_hostiles', {
@@ -222,6 +255,27 @@ async function main() {
         block: args[0],
         maxDistance: 16
       })
+    case 'inspect_block':
+      if (args.length < 3) return usage('inspect_block requires X Y Z.')
+      return execute('inspect_block_at', {
+        position: {
+          x: integer(args[0]),
+          y: integer(args[1]),
+          z: integer(args[2])
+        }
+      })
+    case 'break_block':
+      if (args.length < 4) {
+        return usage('break_block requires X Y Z EXPECTED_BLOCK.')
+      }
+      return execute('break_block_at', {
+        position: {
+          x: integer(args[0]),
+          y: integer(args[1]),
+          z: integer(args[2])
+        },
+        expectedBlock: args[3]
+      })
     case 'door':
     case 'traverse_door':
       return execute('traverse_nearby_door', {
@@ -231,10 +285,23 @@ async function main() {
         ),
         returnThrough: String(args[0] || '').toLowerCase() === 'test'
       })
-    case 'site':
+    case 'inspect_site':
+      if (args.length < 5) {
+        return usage('inspect_site requires X Y Z WIDTH DEPTH [MARGIN].')
+      }
+      return execute('inspect_build_site', {
+        origin: {
+          x: integer(args[0]),
+          y: integer(args[1]),
+          z: integer(args[2])
+        },
+        width: integer(args[3]),
+        depth: integer(args[4]),
+        ...(args[5] === undefined ? {} : { margin: integer(args[5]) })
+      })
     case 'clear_site':
       if (args.length < 5) {
-        return usage('site requires X Y Z WIDTH DEPTH [MARGIN].')
+        return usage('clear_site requires X Y Z WIDTH DEPTH [MARGIN].')
       }
       return execute('clear_build_site', {
         origin: {
@@ -246,6 +313,61 @@ async function main() {
         depth: integer(args[4]),
         ...(args[5] === undefined ? {} : { margin: integer(args[5]) })
       }, true)
+    case 'plan_create': {
+      if (args.length === 0) return usage('plan_create requires JSON.')
+      let plan
+      try {
+        plan = JSON.parse(args.join(' '))
+      } catch {
+        throw new Error('Building plan must be valid JSON.')
+      }
+      return execute('create_build_plan', plan)
+    }
+    case 'plan_get':
+      if (!args[0]) return usage('plan_get requires an id.')
+      return execute('get_build_plan', { id: integer(args[0]) })
+    case 'plan_advance':
+      if (args.length < 2) return usage('plan_advance requires ID PHASE [NOTE].')
+      return execute('advance_build_plan', {
+        id: integer(args[0]),
+        phase: args[1],
+        ...(args.length > 2 ? { note: args.slice(2).join(' ') } : {})
+      })
+    case 'plan_place':
+      if (args.length < 6) {
+        return usage('plan_place requires ID PHASE BLOCK X Y Z.')
+      }
+      return execute('place_build_plan_block', {
+        id: integer(args[0]),
+        phase: args[1],
+        block: args[2],
+        position: {
+          x: integer(args[3]),
+          y: integer(args[4]),
+          z: integer(args[5])
+        }
+      })
+    case 'plan_resume':
+      if (args.length < 2) return usage('plan_resume requires ID REASON.')
+      return execute('resume_build_plan', {
+        id: integer(args[0]),
+        reason: args.slice(1).join(' ')
+      })
+    case 'plan_abort':
+      if (args.length < 2) return usage('plan_abort requires ID REASON.')
+      return execute('abort_build_plan', {
+        id: integer(args[0]),
+        reason: args.slice(1).join(' ')
+      })
+    case 'plan_site':
+      if (!args[0]) return usage('plan_site requires an id.')
+      return execute('prepare_build_plan_site', {
+        id: integer(args[0]),
+        ...(args[1] === undefined ? {} : { margin: integer(args[1]) })
+      }, true)
+    case 'plan_inspect':
+      if (!args[0]) return usage('plan_inspect requires an id.')
+      return execute('inspect_build_plan_shelter', { id: integer(args[0]) })
     case 'build_plan':
     case 'inspect_shelter': {
       if (args.length === 0) return usage(`${command} requires JSON.`)
@@ -275,6 +397,20 @@ async function main() {
       })
     case 'farm_all':
       return execute('farm_all_available', { crop: args[0] || 'all' })
+    case 'create_farm':
+      if (args.length < 6) {
+        return usage('create_farm requires CROP X Y Z WIDTH DEPTH.')
+      }
+      return execute('create_farm', {
+        crop: args[0],
+        origin: {
+          x: integer(args[1]),
+          y: integer(args[2]),
+          z: integer(args[3])
+        },
+        width: integer(args[4]),
+        depth: integer(args[5])
+      }, true)
     case 'smelt':
       if (!args[0]) return usage('smelt requires an item and amount.')
       return execute('smelt_item', {
@@ -296,6 +432,10 @@ async function main() {
       return execute('forget_location', { name: args.join(' ') })
     case 'deaths':
       return request('GET', '/deaths')
+    case 'recovery':
+      return execute('get_survival_recovery', {})
+    case 'recovery_clear':
+      return execute('clear_survival_recovery', {})
     case 'deathpoint':
       return execute('return_to_death', {}, true)
     case 'exec':

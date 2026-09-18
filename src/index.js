@@ -12,6 +12,8 @@ const DeathTracker = require('./bridge/DeathTracker')
 const EarlApiServer = require('./api/EarlApiServer')
 const LearnedProcedureStore = require('./learning/LearnedProcedureStore')
 const AutonomyController = require('./autonomy/AutonomyController')
+const BuildPlanStore = require('./building/BuildPlanStore')
+const SurvivalRecovery = require('./survival/SurvivalRecovery')
 
 function envEnabled(value) {
   return ['1', 'true', 'yes', 'on'].includes(
@@ -38,9 +40,78 @@ function isLoopback(host) {
   return ['127.0.0.1', '::1', 'localhost'].includes(host)
 }
 
+function logFatal(label, error) {
+  const detail = error && error.stack ? error.stack : String(error)
+  console.error(`[fatal ${new Date().toISOString()}] ${label}: ${detail}`)
+}
+
+process.on('uncaughtException', (error) => {
+  logFatal('uncaughtException', error)
+  process.exit(1)
+})
+
+process.on('unhandledRejection', (error) => {
+  logFatal('unhandledRejection', error)
+  process.exit(1)
+})
+
 async function main() {
   const brainMode = getBrainMode()
   const bot = await createBot()
+  let shuttingDown = false
+  const connectionState = {
+    connected: false,
+    spawned: false,
+    lastEvent: 'created',
+    lastEventAt: new Date().toISOString(),
+    lastDisconnect: null
+  }
+  const connectionEvent = (event, details = null) => {
+    connectionState.lastEvent = event
+    connectionState.lastEventAt = new Date().toISOString()
+    if (details !== null) connectionState.details = details
+  }
+
+  bot.on('login', () => {
+    connectionState.connected = true
+    connectionEvent('login')
+  })
+  bot.on('spawn', () => {
+    connectionState.connected = true
+    connectionState.spawned = true
+    connectionState.lastDisconnect = null
+    connectionEvent('spawn')
+  })
+  bot.on('kicked', (reason) => {
+    let detail
+    try {
+      detail = typeof reason === 'string' ? reason : JSON.stringify(reason)
+    } catch {
+      detail = String(reason)
+    }
+    connectionEvent('kicked', detail)
+    console.error(`[minecraft ${connectionState.lastEventAt}] kicked: ${detail}`)
+  })
+  bot.on('error', (error) => {
+    connectionEvent('error', error.message)
+    console.error(`[minecraft ${connectionState.lastEventAt}] error: ${error.stack || error.message}`)
+  })
+  bot.on('end', (reason) => {
+    connectionState.connected = false
+    connectionState.spawned = false
+    connectionState.lastDisconnect = {
+      time: new Date().toISOString(),
+      reason: String(reason || 'connection ended')
+    }
+    connectionEvent('end', connectionState.lastDisconnect.reason)
+    console.error(
+      `[minecraft ${connectionState.lastEventAt}] connection ended: ` +
+      connectionState.lastDisconnect.reason
+    )
+    if (!shuttingDown) {
+      setTimeout(() => process.exit(1), 100).unref()
+    }
+  })
   const scheduler = new TaskScheduler()
   const router = new CommandRouter(bot)
   const dataDir = process.env.EARL_DATA_DIR || path.join(process.cwd(), 'data')
@@ -48,6 +119,10 @@ async function main() {
     filePath: process.env.EARL_BRIDGE_FILE || path.join(dataDir, 'bridge.json')
   })
   const deathTracker = new DeathTracker(bot)
+  const buildPlanStore = new BuildPlanStore({
+    filePath: process.env.EARL_BUILD_PLANS_FILE ||
+      path.join(dataDir, 'build-plans.json')
+  })
 
   bot.on('chat', (username, message) => {
     if (username !== bot.username) {
@@ -55,13 +130,16 @@ async function main() {
     }
   })
 
-  configureSurvival(bot)
   deathTracker.start()
 
   const runtime = registerCommands(bot, scheduler, router, {
     brainMode,
     chatBridge,
-    deathTracker
+    deathTracker,
+    buildPlanStore
+  })
+  configureSurvival(bot, {
+    actionCoordinator: runtime.actionCoordinator
   })
   const taskManager = new TaskManager({
     skillRegistry: runtime.skillRegistry,
@@ -75,6 +153,8 @@ async function main() {
   })
   runtime.taskManager = taskManager
   runtime.procedureStore = procedureStore
+  runtime.buildPlanStore = buildPlanStore
+  runtime.connectionState = connectionState
 
   const autonomyController = new AutonomyController({
     bot,
@@ -96,6 +176,32 @@ async function main() {
   runtime.combatReflex.setUrgencyHandler(async (active, reason) => {
     if (active) await autonomyController.interrupt(reason)
     else await autonomyController.resume(`${reason} cleared`)
+  })
+  const survivalRecovery = new SurvivalRecovery(bot, {
+    actionCoordinator: runtime.actionCoordinator,
+    combatReflex: runtime.combatReflex,
+    autonomyController,
+    filePath: process.env.EARL_SURVIVAL_FILE ||
+      path.join(dataDir, 'survival-recovery.json')
+  })
+  survivalRecovery.start()
+  runtime.survivalRecovery = survivalRecovery
+  runtime.skillRegistry.addExecutionGuard(({ name, skill }) => (
+    survivalRecovery.guardSkill(name, skill.safety)
+  ))
+  runtime.skillRegistry.register({
+    name: 'get_survival_recovery',
+    description: 'Read critical-health and repeated-death recovery state.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    safety: 'read_only',
+    execute: async () => survivalRecovery.getStatus()
+  })
+  runtime.skillRegistry.register({
+    name: 'clear_survival_recovery',
+    description: 'Player-authorized reset of repeated-death recovery mode after the danger is fixed.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    safety: 'control',
+    execute: async () => survivalRecovery.clear()
   })
 
   let llmAgent = null
@@ -185,7 +291,6 @@ async function main() {
     }
   })
 
-  let shuttingDown = false
   async function shutdown() {
     if (shuttingDown) return
     shuttingDown = true
@@ -195,6 +300,7 @@ async function main() {
     } catch {}
     autonomyController.stop()
     deathTracker.stop()
+    survivalRecovery.stop()
     if (apiServer) await apiServer.stop()
     try {
       bot.quit('Earl is shutting down.')
@@ -211,5 +317,7 @@ async function main() {
 
 main().catch((error) => {
   console.error('Earl failed to start:', error)
-  process.exitCode = 1
+  // A partially initialized Mineflayer client can otherwise keep running
+  // after an API bind/configuration failure and create a ghost second Earl.
+  process.exit(1)
 })
