@@ -93,6 +93,12 @@ test('finished shelter inspection enforces floor, entrance, utilities, and light
   assert.ok(result.features.walkableInteriorCells > 0)
 
   world.delete('3,65,2')
+  put('furnace', { x: 3, y: 66, z: 2 })
+  const elevatedUtility = inspectShelter(bot, plan)
+  assert.equal(elevatedUtility.features.furnaces, 1)
+  assert.doesNotMatch(elevatedUtility.problems.join(' '), /missing a furnace/i)
+
+  world.delete('3,66,2')
   const broken = inspectShelter(bot, plan)
   assert.equal(broken.valid, false)
   assert.match(broken.problems.join(' '), /missing a furnace/i)
