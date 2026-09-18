@@ -13,6 +13,7 @@ function createBot() {
     getProperties: () => ({})
   }
   const inventory = []
+  const inspectedPositions = []
   let digs = 0
   const bot = {
     entity: { position: new Vec3(1, 64, 3) },
@@ -21,7 +22,11 @@ function createBot() {
       itemsByName: { oak_planks: { id: 5 } }
     },
     inventory: { items: () => inventory },
-    blockAt: () => current,
+    blockAt: (position) => {
+      inspectedPositions.push(position)
+      assert.equal(typeof position.floored, 'function')
+      return current
+    },
     pathfinder: { async goto() {} },
     async waitForTicks() {},
     async dig() {
@@ -30,7 +35,7 @@ function createBot() {
       inventory.push({ name: 'oak_planks', type: 5, count: 1 })
     }
   }
-  return { bot, target, get digs() { return digs } }
+  return { bot, target, inspectedPositions, get digs() { return digs } }
 }
 
 test('exact block inspection is read-only and reports server state', () => {
@@ -39,6 +44,7 @@ test('exact block inspection is read-only and reports server state', () => {
 
   assert.equal(result.name, 'oak_planks')
   assert.equal(fixture.digs, 0)
+  assert.ok(fixture.inspectedPositions[0] instanceof Vec3)
 })
 
 test('exact breaking refuses a mismatched expected block', async () => {
