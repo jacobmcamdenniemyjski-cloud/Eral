@@ -234,7 +234,7 @@ function inspectShelter(bot, plan) {
         z === plan.origin.z ||
         z === plan.origin.z + plan.depth - 1
       )
-      if (!onBoundary && y === plan.origin.y + 1) {
+      if (!onBoundary) {
         if (STORAGE_NAMES.has(name)) features.storage += 1
         if (name === 'crafting_table') features.craftingTables += 1
         if (FURNACE_NAMES.has(name)) features.furnaces += 1
@@ -309,6 +309,7 @@ function inspectShelter(bot, plan) {
   if (features.walkableInteriorCells === 0) {
     problems.push('interior has no two-block-high walkable cell')
   } else if (
+    features.lightSources === 0 &&
     features.minimumInteriorBlockLight !== null &&
     features.minimumInteriorBlockLight < MIN_BUILD_LIGHT
   ) {

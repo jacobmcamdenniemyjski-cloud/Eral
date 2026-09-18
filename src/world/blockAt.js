@@ -1,4 +1,5 @@
 const { goals } = require('mineflayer-pathfinder')
+const { Vec3 } = require('vec3')
 const {
   inventoryCount,
   inventoryTotal,
@@ -13,9 +14,14 @@ function positionObject(position) {
   }
 }
 
+function positionVec3(position) {
+  const target = positionObject(position)
+  return new Vec3(target.x, target.y, target.z)
+}
+
 function inspectBlockAt(bot, position) {
   const target = positionObject(position)
-  const block = bot.blockAt(target)
+  const block = bot.blockAt(positionVec3(target))
   if (!block) {
     return { position: target, loaded: false, name: null }
   }
@@ -61,7 +67,8 @@ async function breakBlockAt(bot, input, options = {}) {
   const { signal } = options
   const target = positionObject(input.position)
   if (signal && signal.aborted) throw signal.reason
-  const block = bot.blockAt(target)
+  const targetVec = positionVec3(target)
+  const block = bot.blockAt(targetVec)
   if (!block || block.name === 'air') {
     return {
       status: 'failed',
@@ -85,7 +92,7 @@ async function breakBlockAt(bot, input, options = {}) {
     )
   }
   if (signal && signal.aborted) throw signal.reason
-  const current = bot.blockAt(target)
+  const current = bot.blockAt(targetVec)
   if (!current || current.name !== block.name) {
     return {
       status: 'failed',
@@ -104,14 +111,14 @@ async function breakBlockAt(bot, input, options = {}) {
   const totalBefore = inventoryTotal(bot)
   await bot.dig(current, true)
   const changed = await waitForCondition(bot, () => {
-    const after = bot.blockAt(target)
+    const after = bot.blockAt(targetVec)
     return !after || after.name !== current.name ? true : null
   }, { signal, ticks: 40 })
   if (!changed) {
     return {
       status: 'failed',
       position: target,
-      actualBlock: bot.blockAt(target) && bot.blockAt(target).name,
+      actualBlock: bot.blockAt(targetVec) && bot.blockAt(targetVec).name,
       message: `The server did not confirm breaking ${current.name}.`
     }
   }

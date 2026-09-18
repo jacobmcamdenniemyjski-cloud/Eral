@@ -1,4 +1,5 @@
 const pickupItems = require('../inventory/pickupItems')
+const { goals } = require('mineflayer-pathfinder')
 
 const PASSIVE_ANIMALS = new Set([
   'chicken',
@@ -128,6 +129,9 @@ async function huntAnimals(bot, animalName, amount = 1, options = {}) {
   }
 
   const before = inventorySnapshot(bot)
+  const start = bot.entity.position.clone
+    ? bot.entity.position.clone()
+    : { ...bot.entity.position }
   const excludedIds = new Set()
   let hunted = 0
   let pickupTargets = 0
@@ -148,16 +152,30 @@ async function huntAnimals(bot, animalName, amount = 1, options = {}) {
       }
       hunted += 1
       if (typeof bot.waitForTicks === 'function') await bot.waitForTicks(8)
-      const pickup = await pickupItems(bot, {
-        signal,
-        maxDistance: Math.max(maxDistance, 8),
-        maxItems: 16
-      })
-      pickupTargets += pickup.targets
+      try {
+        const pickup = await pickupItems(bot, {
+          signal,
+          maxDistance: Math.max(maxDistance, 8),
+          maxItems: 16
+        })
+        pickupTargets += pickup.targets
+      } catch (error) {
+        // A pathfinder stop after a confirmed kill must not erase that verified
+        // outcome. Inventory evidence below remains authoritative.
+        failure = `Kill confirmed; drop collection was interrupted: ${error.message}`
+      }
     } finally {
       if (bot.pvp) bot.pvp.forceStop()
       if (typeof bot.clearControlStates === 'function') bot.clearControlStates()
     }
+  }
+
+  try {
+    if (bot.pathfinder && typeof bot.pathfinder.goto === 'function') {
+      await bot.pathfinder.goto(new goals.GoalNear(start.x, start.y, start.z, 2))
+    }
+  } catch (error) {
+    failure = `${failure ? `${failure} ` : ''}Could not return to the hunt start: ${error.message}`
   }
 
   const acquired = inventoryGain(before, inventorySnapshot(bot))
