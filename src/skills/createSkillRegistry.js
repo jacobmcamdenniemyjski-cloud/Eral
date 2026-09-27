@@ -42,6 +42,7 @@ const fleeFromHostiles = require('../movement/fleeFromHostiles')
 const traverseDoor = require('../movement/traverseDoor')
 const useBlock = require('../world/useBlock')
 const { breakBlockAt, inspectBlockAt } = require('../world/blockAt')
+const fillBucket = require('../world/fillBucket')
 const { resolveResourceName } = require('../core/parseItemRequest')
 const SkillRegistry = require('./SkillRegistry')
 const BuildPlanStore = require('../building/BuildPlanStore')
@@ -785,6 +786,20 @@ function createSkillRegistry(options) {
         signal: context.signal
       }
     )
+  })
+
+  registry.register({
+    name: 'fill_bucket',
+    description: 'Find source water, equip an empty bucket, fill it, and verify that a water bucket entered inventory.',
+    inputSchema: objectSchema({
+      maxDistance: { type: 'integer', minimum: 1, maximum: 64, default: 32 }
+    }, ['maxDistance']),
+    timeoutMs: 120000,
+    safety: 'inventory_write',
+    execute: async ({ maxDistance }, context) => fillBucket(bot, {
+      maxDistance,
+      signal: context.signal
+    })
   })
 
   registry.register({
