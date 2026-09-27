@@ -129,9 +129,14 @@ async function traverseDoor(bot, options = {}) {
   const startingSide = doorSide(door, bot.entity.position) || doorSide(door, nearSide)
 
   if (distance(bot.entity.position, nearSide) > 1.5) {
-    await bot.pathfinder.goto(
-      new goals.GoalNear(nearSide.x, nearSide.y, nearSide.z, 1)
-    )
+    try {
+      await bot.pathfinder.goto(
+        new goals.GoalNear(nearSide.x, nearSide.y, nearSide.z, 1)
+      )
+    } catch (error) {
+      const approached = await walkDirectlyThrough(bot, nearSide, signal)
+      if (!approached) throw error
+    }
   }
   if (signal && signal.aborted) throw signal.reason
 

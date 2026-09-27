@@ -1,5 +1,8 @@
 const { goals } = require('mineflayer-pathfinder')
 const { inventoryCount, waitForCondition } = require('../actions/verifiedState')
+const { configureSafeMovements } = require('../movement/configureDoorTraversal')
+
+const HORIZONTAL_OFFSETS = [[1, 0], [-1, 0], [0, 1], [0, -1]]
 
 function isSourceWater(block) {
   if (!block || block.name !== 'water') return false
@@ -13,6 +16,28 @@ function isSourceWater(block) {
   }
 }
 
+function isDryPassable(block) {
+  return Boolean(block) &&
+    block.name !== 'water' && block.name !== 'lava' &&
+    block.boundingBox === 'empty'
+}
+
+function safeStandForSource(bot, source) {
+  const above = bot.blockAt(source.position.offset(0, 1, 0))
+  if (!isDryPassable(above)) return null
+  for (const [x, z] of HORIZONTAL_OFFSETS) {
+    const feet = source.position.offset(x, 1, z)
+    const footBlock = bot.blockAt(feet)
+    const headBlock = bot.blockAt(feet.offset(0, 1, 0))
+    const support = bot.blockAt(feet.offset(0, -1, 0))
+    if (
+      isDryPassable(footBlock) && isDryPassable(headBlock) &&
+      support && support.boundingBox === 'block'
+    ) return feet
+  }
+  return null
+}
+
 async function fillBucket(bot, options = {}) {
   const { signal, maxDistance = 32 } = options
   if (signal && signal.aborted) throw signal.reason
@@ -22,21 +47,34 @@ async function fillBucket(bot, options = {}) {
   if (!water) throw new Error('this Minecraft version has no water block')
 
   const positions = bot.findBlocks({ matching: water.id, maxDistance, count: 64 })
-  const source = positions
+  const candidates = positions
     .map((position) => bot.blockAt(position))
     .filter(isSourceWater)
+    .map((source) => ({ source, stand: safeStandForSource(bot, source) }))
+    .filter((candidate) => candidate.stand)
     .sort((a, b) => (
-      bot.entity.position.distanceTo(a.position) -
-      bot.entity.position.distanceTo(b.position)
-    ))[0]
-  if (!source) throw new Error(`I cannot find source water within ${maxDistance} blocks`)
-
-  if (bot.entity.position.distanceTo(source.position) > 4) {
-    await bot.pathfinder.goto(new goals.GoalNear(
-      source.position.x, source.position.y, source.position.z, 3
+      bot.entity.position.distanceTo(a.stand) -
+      bot.entity.position.distanceTo(b.stand)
     ))
+  const candidate = candidates[0]
+  if (!candidate) {
+    throw new Error(
+      `I cannot find exposed source water with a dry, solid standing place within ${maxDistance} blocks`
+    )
+  }
+  const { source, stand } = candidate
+
+  if (bot.entity.position.distanceTo(stand) > 1.25) {
+    const movements = configureSafeMovements(bot)
+    if (movements && 'liquidCost' in movements) movements.liquidCost = 100
+    await bot.pathfinder.goto(new goals.GoalBlock(stand.x, stand.y, stand.z))
   }
   if (signal && signal.aborted) throw signal.reason
+  const feet = bot.entity.position.floored()
+  const currentFeet = bot.blockAt(feet)
+  if (!isDryPassable(currentFeet) || bot.entity.position.distanceTo(stand) > 1.5) {
+    throw new Error('I could not reach the dry standing place beside source water')
+  }
   await bot.equip(empty, 'hand')
   const bucketsBefore = inventoryCount(bot, 'bucket')
   const waterBefore = inventoryCount(bot, 'water_bucket')
@@ -59,3 +97,4 @@ async function fillBucket(bot, options = {}) {
 
 module.exports = fillBucket
 module.exports.isSourceWater = isSourceWater
+module.exports.safeStandForSource = safeStandForSource
