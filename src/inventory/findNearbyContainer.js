@@ -5,19 +5,47 @@ const CONTAINER_NAMES = [
 ]
 
 function findNearbyContainer(bot, maxDistance = 16) {
-  const containerIds = CONTAINER_NAMES
+  if (typeof bot.findBlock === 'function') {
+    const containerIds = containerTypeIds(bot)
+    if (containerIds.length === 0) return null
+    return bot.findBlock({ matching: containerIds, maxDistance })
+  }
+  return findNearbyContainers(bot, maxDistance, 1)[0] || null
+}
+
+function containerTypeIds(bot) {
+  return CONTAINER_NAMES
     .map((name) => bot.registry.blocksByName[name])
     .filter(Boolean)
     .map((block) => block.id)
+}
+
+function findNearbyContainers(bot, maxDistance = 16, count = 16) {
+  const containerIds = containerTypeIds(bot)
 
   if (containerIds.length === 0) {
-    return null
+    return []
   }
 
-  return bot.findBlock({
+  if (typeof bot.findBlocks !== 'function') {
+    const found = typeof bot.findBlock === 'function'
+      ? bot.findBlock({ matching: containerIds, maxDistance })
+      : null
+    return found ? [found] : []
+  }
+  const positions = bot.findBlocks({
     matching: containerIds,
-    maxDistance
+    maxDistance,
+    count
   })
+  return positions
+    .map((position) => bot.blockAt(position))
+    .filter(Boolean)
+    .sort((a, b) => (
+      bot.entity.position.distanceTo(a.position) -
+      bot.entity.position.distanceTo(b.position)
+    ))
 }
 
 module.exports = findNearbyContainer
+module.exports.findNearbyContainers = findNearbyContainers
