@@ -11,20 +11,28 @@ const { placeBlockAt } = require('../src/building/placeBlock')
 test('fill bucket verifies the inventory exchange at source water', async () => {
   const sourcePosition = new Vec3(3, 63, 0)
   const source = {
-    name: 'water', position: sourcePosition, metadata: 0,
+    name: 'water', position: sourcePosition, metadata: 0, boundingBox: 'empty',
     getProperties: () => ({ level: 0 })
   }
   const inventory = [{ name: 'bucket', type: 1, count: 1 }]
   const bot = {
     entity: { position: new Vec3(0, 64, 0) },
     registry: {
-      blocksByName: { water: { id: 9 } },
-      itemsByName: { bucket: { id: 1 }, water_bucket: { id: 2 } }
+      ...minecraftData,
+      blocksByName: { ...minecraftData.blocksByName, water: { id: 9 } },
+      itemsByName: { ...minecraftData.itemsByName, bucket: { id: 1 }, water_bucket: { id: 2 } }
     },
     inventory: { items: () => inventory },
     findBlocks: () => [sourcePosition],
-    blockAt: () => source,
-    pathfinder: { async goto() {} },
+    blockAt: (position) => position.equals(sourcePosition)
+      ? source
+      : position.y === sourcePosition.y
+        ? { name: 'dirt', boundingBox: 'block', position }
+        : { name: 'air', boundingBox: 'empty', position },
+    pathfinder: {
+      setMovements() {},
+      async goto(goal) { bot.entity.position = new Vec3(goal.x, goal.y, goal.z) }
+    },
     async equip(item) { bot.heldItem = item },
     async activateBlock() {
       inventory[0].count = 0
@@ -35,6 +43,30 @@ test('fill bucket verifies the inventory exchange at source water', async () => 
   const result = await fillBucket(bot)
   assert.equal(result.status, 'completed')
   assert.equal(result.waterBucketAfter, 1)
+})
+
+test('fill bucket refuses sealed underground water without moving', async () => {
+  const sourcePosition = new Vec3(3, 50, 0)
+  const source = {
+    name: 'water', position: sourcePosition, metadata: 0, boundingBox: 'empty',
+    getProperties: () => ({ level: 0 })
+  }
+  let moved = false
+  const bot = {
+    entity: { position: new Vec3(0, 64, 0) },
+    registry: {
+      blocksByName: { water: { id: 9 } },
+      itemsByName: { bucket: { id: 1 }, water_bucket: { id: 2 } }
+    },
+    inventory: { items: () => [{ name: 'bucket', type: 1, count: 1 }] },
+    findBlocks: () => [sourcePosition],
+    blockAt: (position) => position.equals(sourcePosition)
+      ? source
+      : { name: 'stone', boundingBox: 'block', position },
+    pathfinder: { async goto() { moved = true } }
+  }
+  await assert.rejects(fillBucket(bot), /exposed source water/)
+  assert.equal(moved, false)
 })
 
 test('storage skips an unreachable container and uses the next one', async () => {
