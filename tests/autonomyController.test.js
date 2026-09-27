@@ -194,6 +194,25 @@ test('completed intentions cool down instead of immediately repeating', async ()
   assert.notEqual(second.title, first.title)
 })
 
+test('an unchanged external blocker suppresses the same intention for hours', () => {
+  const { controller } = createController()
+  controller.state.history.push({
+    drive: 'food_security',
+    title: 'inspect and improve the farm',
+    status: 'completed',
+    updatedAt: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+    outcome: 'Farm blocked on the same verified cause; waiting on Jacob for water.'
+  })
+
+  const candidates = controller.generateCandidates(observation({
+    farm: { crops: [], emptyFarmland: 0 }
+  }))
+  assert.equal(
+    candidates.some((candidate) => candidate.title === 'inspect and improve the farm'),
+    false
+  )
+})
+
 test('sleeping at night does not generate another night-safety intention', () => {
   const { controller } = createController()
   const candidates = controller.generateCandidates(observation({
