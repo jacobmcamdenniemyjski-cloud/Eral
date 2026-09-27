@@ -9,6 +9,14 @@ function distanceToCoordinates(position, x, y, z) {
   )
 }
 
+function arrivalDistance(position, x, y, z) {
+  return {
+    horizontal: Math.hypot(position.x - x, position.z - z),
+    vertical: Math.abs(position.y - y),
+    direct: distanceToCoordinates(position, x, y, z)
+  }
+}
+
 async function goTo(bot, x, y, z, options = {}) {
   const { tolerance = 2, signal } = options
 
@@ -25,11 +33,17 @@ async function goTo(bot, x, y, z, options = {}) {
     throw signal.reason || new Error('Travel was cancelled.')
   }
 
-  const distance = distanceToCoordinates(bot.entity.position, x, y, z)
+  const distance = arrivalDistance(bot.entity.position, x, y, z)
 
-  if (distance > tolerance + 0.25) {
+  // GoalNear is fundamentally a proximity goal. The requested Y commonly
+  // names the supporting block while the entity stands one block above it,
+  // so a 2-block horizontal arrival can measure ~2.24 in 3D and was falsely
+  // rejected after pathfinder had already succeeded.
+  if (distance.horizontal > tolerance + 0.25 || distance.vertical > 1.5) {
     throw new Error(
-      `did not reach (${x}, ${y}, ${z}); still ${distance.toFixed(1)} blocks away`
+      `did not reach (${x}, ${y}, ${z}); still ${distance.direct.toFixed(1)} ` +
+      `blocks away (${distance.horizontal.toFixed(1)} horizontal, ` +
+      `${distance.vertical.toFixed(1)} vertical)`
     )
   }
 
@@ -40,3 +54,4 @@ async function goTo(bot, x, y, z, options = {}) {
 }
 
 module.exports = goTo
+module.exports.arrivalDistance = arrivalDistance
