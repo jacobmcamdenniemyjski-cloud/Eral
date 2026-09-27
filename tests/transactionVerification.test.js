@@ -50,6 +50,30 @@ test('crafting never retries after ingredients changed without output', async ()
     (error) => error.code === 'CRAFT_DESYNC'
   )
   assert.equal(calls, 1)
+
+  await assert.rejects(
+    performCraft(bot, selection, null, 'stick', 4, { announce: false }),
+    (error) => error.code === 'CRAFT_DESYNC_LOCKED'
+  )
+  assert.equal(calls, 1)
+})
+
+test('crafting reconciles output that appears when a stale window closes', async () => {
+  const bot = craftingBot((inventory) => {
+    inventory[0].count -= 2
+    throw new Error('updateSlot timed out')
+  })
+  bot.currentWindow = { id: 4 }
+  bot.closeWindow = () => {
+    bot.inventory.items()[1].count += 4
+    bot.currentWindow = null
+  }
+
+  const result = await performCraft(bot, selection, null, 'stick', 4, {
+    announce: false
+  })
+  assert.equal(result.status, 'completed')
+  assert.equal(result.crafted, 4)
 })
 
 test('multi-craft requests commit and verify one recipe at a time', async () => {

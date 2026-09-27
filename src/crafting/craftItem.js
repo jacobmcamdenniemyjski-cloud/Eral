@@ -8,6 +8,35 @@ const {
   waitTicks
 } = require('../actions/verifiedState')
 
+const craftDesyncs = new WeakMap()
+
+function desyncState(bot) {
+  if (!craftDesyncs.has(bot)) craftDesyncs.set(bot, new Map())
+  return craftDesyncs.get(bot)
+}
+
+function assertCraftingSynchronized(bot, itemName) {
+  const blocked = desyncState(bot).get(itemName)
+  if (!blocked) return
+  const error = new Error(
+    `crafting ${itemName} is disabled until Earl reconnects because the ` +
+    `server previously consumed ingredients without returning the output`
+  )
+  error.code = 'CRAFT_DESYNC_LOCKED'
+  error.previousEvidence = blocked
+  throw error
+}
+
+async function settleCraftingWindow(bot) {
+  if (bot.currentWindow) {
+    try {
+      if (typeof bot.closeWindow === 'function') bot.closeWindow(bot.currentWindow)
+      else if (typeof bot.currentWindow.close === 'function') bot.currentWindow.close()
+    } catch {}
+  }
+  await waitTicks(bot, 4)
+}
+
 function getCraftCount(recipe, amount) {
   return Math.ceil(amount / (recipe.result.count || 1))
 }
@@ -67,6 +96,7 @@ async function performCraft(
     maxAttempts = 2
   } = options
   throwIfCancelled(signal)
+  assertCraftingSynchronized(bot, itemName)
 
   const outputId = selection.recipe.result.id
   const outputPerCraft = selection.recipe.result.count || 1
@@ -137,6 +167,17 @@ async function performCraft(
       }
 
       if (inventoryChanged) {
+        await settleCraftingWindow(bot)
+        const settledOutput = inventoryCount(bot, outputId)
+        if (settledOutput - outputBefore >= outputPerCraft) {
+          evidence.outputAfter = settledOutput
+          evidence.reconciledAfterWindowClose = true
+          transactionEvidence.push(evidence)
+          reconciledAfterError = true
+          completed = true
+          break
+        }
+        desyncState(bot).set(itemName, evidence)
         const error = new Error(
           `craft transaction ${craftIndex + 1}/${requestedCrafts} changed ` +
           `inventory but did not produce ${itemName}; stopped without retrying`
@@ -193,6 +234,7 @@ async function performCraft(
       transactions: transactionEvidence
     }
   }
+  desyncState(bot).delete(itemName)
   if (announce) {
     console.log(`Crafted ${crafted} ${itemName} in ${requestedCrafts} verified transaction(s).`)
     bot.chat(`Crafted ${crafted} ${itemName}.`)
@@ -374,3 +416,4 @@ async function craftItem(bot, itemName, amount = 1, options = {}) {
 
 module.exports = craftItem
 module.exports.performCraft = performCraft
+module.exports.assertCraftingSynchronized = assertCraftingSynchronized

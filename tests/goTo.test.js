@@ -37,3 +37,12 @@ test('goto rejects when pathfinder finishes outside tolerance', async () => {
     /still 10.0 blocks away/
   )
 })
+
+test('goto accepts supporting-block Y with horizontal arrival in range', async () => {
+  const bot = {
+    entity: { position: { x: 12, y: 65, z: 10 } },
+    pathfinder: { async goto() {} }
+  }
+
+  assert.equal(await goTo(bot, 10, 64, 10, { tolerance: 2 }), true)
+})
