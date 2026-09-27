@@ -5,6 +5,7 @@ const {
 } = require('../perception/isPositionClear')
 const { isClearablePlant } = require('./clearBuildSite')
 const { breakVegetation } = require('../farming/gatherSeeds')
+const { isDroppedItem } = require('../inventory/pickupItems')
 const {
   inventoryCount,
   waitForBlock,
@@ -156,6 +157,14 @@ async function moveSelfOffTarget(bot, target, signal) {
   }
 }
 
+async function clearDroppedItemsAtTarget(bot, target, signal) {
+  const dropped = entitiesAtPosition(bot, target).filter(isDroppedItem)
+  if (dropped.length === 0) return
+  await bot.pathfinder.goto(new goals.GoalNear(target.x, target.y, target.z, 1))
+  if (typeof bot.waitForTicks === 'function') await bot.waitForTicks(12)
+  throwIfCancelled(signal)
+}
+
 function acceptablePlacedNames(blockName) {
   return new Set(ALTERNATE_PLACED_NAMES[blockName] || [blockName])
 }
@@ -207,6 +216,7 @@ async function placeBlockAt(bot, blockName, position, options = {}) {
   }
 
   await moveSelfOffTarget(bot, target, signal)
+  await clearDroppedItemsAtTarget(bot, target, signal)
 
   if (!isPositionClearOfEntities(bot, target)) {
     throw new Error(`${target} is occupied by an entity`)
