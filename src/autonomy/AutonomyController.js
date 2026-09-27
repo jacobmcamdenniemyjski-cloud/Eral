@@ -21,6 +21,8 @@ const FOOD_NAMES = new Set([
 ])
 
 const DEFAULT_INTENTION_COOLDOWN_MS = 10 * 60 * 1000
+const BLOCKED_INTENTION_COOLDOWN_MS = 6 * 60 * 60 * 1000
+const BLOCKED_OUTCOME_PATTERN = /\b(?:blocked|waiting (?:on|for)|cannot progress|no action possible|unchanged|same (?:verified )?cause)\b/i
 
 function clone(value) {
   return value === undefined ? undefined : JSON.parse(JSON.stringify(value))
@@ -268,6 +270,16 @@ class AutonomyController {
       ))
     }
 
+
+    const recentlyBlocked = (drive, title) => this.state.history.some((entry) => (
+      entry.drive === drive &&
+      entry.title === title &&
+      ['completed', 'failed'].includes(entry.status) &&
+      typeof entry.outcome === 'string' &&
+      BLOCKED_OUTCOME_PATTERN.test(entry.outcome) &&
+      this.now() - Date.parse(entry.updatedAt) < BLOCKED_INTENTION_COOLDOWN_MS
+    ))
+
     const add = (
       drive,
       baseScore,
@@ -276,7 +288,10 @@ class AutonomyController {
       guidance,
       cooldownMs = DEFAULT_INTENTION_COOLDOWN_MS
     ) => {
-      if (recentlyFinished(drive, title, cooldownMs)) return
+      if (
+        recentlyFinished(drive, title, cooldownMs) ||
+        recentlyBlocked(drive, title)
+      ) return
       const weight = Number(this.drives[drive]) || 0
       const recentCount = this.state.history.slice(-6)
         .filter((entry) => entry.drive === drive).length
@@ -602,4 +617,5 @@ class AutonomyController {
 
 module.exports = AutonomyController
 module.exports.DEFAULT_DRIVES = DEFAULT_DRIVES
+module.exports.BLOCKED_INTENTION_COOLDOWN_MS = BLOCKED_INTENTION_COOLDOWN_MS
 module.exports.isNight = isNight
