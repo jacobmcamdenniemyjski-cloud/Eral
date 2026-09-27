@@ -29,6 +29,15 @@ function doorSides(block) {
   ]
 }
 
+function doorSide(block, position) {
+  const properties = DoorOpener.blockProperties(block)
+  const [x, z] = FACING_OFFSETS[properties.facing] || FACING_OFFSETS.north
+  const centerX = block.position.x + 0.5
+  const centerZ = block.position.z + 0.5
+  const signed = ((position.x - centerX) * x) + ((position.z - centerZ) * z)
+  return signed > 0.05 ? 1 : signed < -0.05 ? -1 : 0
+}
+
 function findNearbyDoor(bot, maxDistance) {
   const ids = Object.values(bot.registry.blocksByName || {})
     .filter((block) => DoorOpener.isHandOperable({
@@ -117,6 +126,7 @@ async function traverseDoor(bot, options = {}) {
   ))
   const nearSide = sides[0]
   const farSide = sides[1]
+  const startingSide = doorSide(door, bot.entity.position) || doorSide(door, nearSide)
 
   if (distance(bot.entity.position, nearSide) > 1.5) {
     await bot.pathfinder.goto(
@@ -130,7 +140,8 @@ async function traverseDoor(bot, options = {}) {
   if (signal && signal.aborted) throw signal.reason
 
   const finalDistance = distance(bot.entity.position, farSide)
-  if (finalDistance > 1.25) {
+  const crossedSide = doorSide(door, bot.entity.position)
+  if (finalDistance > 1.25 || crossedSide === 0 || crossedSide === startingSide) {
     throw new Error(`did not pass through ${door.name}; still ${finalDistance.toFixed(1)} blocks from the far side`)
   }
 
@@ -138,7 +149,8 @@ async function traverseDoor(bot, options = {}) {
     await opener.setOpen(door, true)
     await crossDoor(bot, nearSide, signal)
     const returnDistance = distance(bot.entity.position, nearSide)
-    if (returnDistance > 1.25) {
+    const returnedSide = doorSide(door, bot.entity.position)
+    if (returnDistance > 1.25 || returnedSide !== startingSide) {
       throw new Error(
         `entered through ${door.name} but could not exit; ` +
         `still ${returnDistance.toFixed(1)} blocks from the starting side`
@@ -159,5 +171,6 @@ async function traverseDoor(bot, options = {}) {
 
 module.exports = traverseDoor
 module.exports.doorSides = doorSides
+module.exports.doorSide = doorSide
 module.exports.findNearbyDoor = findNearbyDoor
 module.exports.walkDirectlyThrough = walkDirectlyThrough
