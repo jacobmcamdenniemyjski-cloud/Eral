@@ -124,6 +124,10 @@ function resolveDirectSkillCall(prompt, username) {
     return { name: 'eat_now', input: {} }
   }
 
+  if (/^(?:fill|fill up|scoop|get|collect)(?: the| an?)?(?: empty)? bucket(?: with water)?$/.test(text)) {
+    return { name: 'fill_bucket', input: { maxDistance: 32 } }
+  }
+
   if (/^(?:deaths|death history|where did you die|where was your last death)$/.test(text)) {
     return { name: 'get_deaths', input: {} }
   }
