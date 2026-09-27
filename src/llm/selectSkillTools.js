@@ -52,6 +52,10 @@ const TOOL_GROUPS = [
     names: ['smelt_item']
   },
   {
+    pattern: /\b(fill|scoop|collect|get)\b.*\b(?:water )?bucket\b|\bfill bucket\b/i,
+    names: ['fill_bucket', 'get_inventory']
+  },
+  {
     pattern: /\b(store|deposit|put away)\b|\bput\b.+\b(chest|barrel)\b/i,
     names: ['store_item', 'get_inventory']
   },
